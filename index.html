@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>$SOL - Degen Waifu AI</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- API Key Modal -->
+    <div id="api-key-modal" class="modal">
+        <div class="modal-content">
+            <h2>gm anon~ </h2>
+            <p>Enter your Anthropic API key to chat with me!</p>
+            <input type="password" id="api-key-input" placeholder="sk-ant-...">
+            <button id="save-api-key" class="neon-btn">LFG!</button>
+            <p class="hint">Your key is stored locally and never sent anywhere except Anthropic.</p>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div id="app-container">
+        <!-- 3D Canvas -->
+        <canvas id="vrm-canvas"></canvas>
+
+        <!-- Token Info Panel -->
+        <div id="token-panel">
+            <div class="token-header">
+                <span class="token-name">$SOL</span>
+            </div>
+
+            <div class="token-info">
+                <div class="info-row">
+                    <span class="label">CA:</span>
+                    <span class="value ca-address" id="ca-address">TBA</span>
+                    <button class="copy-btn" id="copy-ca" title="Copy CA">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="info-row">
+                    <span class="label">X:</span>
+                    <a href="#" class="value social-link" id="twitter-link" target="_blank">@SOL_DegenWaifu</a>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span>Live Chart</span>
+                    <a href="#" class="dex-link" id="dexscreener-link" target="_blank">DexScreener ↗</a>
+                </div>
+                <div class="chart-embed" id="chart-embed">
+                    <!-- DexScreener embed will go here -->
+                    <iframe
+                        id="dexscreener-iframe"
+                        src="about:blank"
+                        title="DEX Chart"
+                    ></iframe>
+                    <div class="chart-placeholder">
+                        <span>chart loading...</span>
+                        <span class="hint">add CA to enable</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quick-links">
+                <a href="#" class="quick-link" id="buy-link">Buy $SOL</a>
+                <a href="#" class="quick-link" id="chart-link">Full Chart</a>
+            </div>
+        </div>
+
+        <!-- Chat Panel -->
+        <div id="chat-panel">
+            <div id="chat-header">
+                <span class="status-dot"></span>
+                <span>Sol</span>
+                <span class="header-sparkle">✦</span>
+            </div>
+
+            <div id="chat-messages">
+                <!-- Messages will be inserted here -->
+            </div>
+
+            <div id="chat-input-container">
+                <input type="text" id="chat-input" placeholder="ask me anything, ser...">
+                <button id="send-btn" class="neon-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Voice Toggle Button -->
+        <button id="voice-toggle" title="Voice On">
+            <svg class="voice-on-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+            </svg>
+            <svg class="voice-off-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <line x1="23" y1="9" x2="17" y2="15"/>
+                <line x1="17" y1="9" x2="23" y2="15"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Three.js and VRM Libraries -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.min.js"
+        }
+    }
+    </script>
+
+    <!-- Token Config -->
+    <script>
+        // ===== TOKEN CONFIG - EDIT THESE =====
+        window.TOKEN_CONFIG = {
+            // Contract Address (replace with your actual CA)
+            CA: 'TBA',
+
+            // Social Links
+            TWITTER: 'https://x.com/SOL_DegenWaifu',
+
+            // DexScreener (replace TOKEN_ADDRESS with actual CA)
+            DEXSCREENER: 'https://dexscreener.com/solana/TOKEN_ADDRESS',
+            DEXSCREENER_EMBED: 'https://dexscreener.com/solana/TOKEN_ADDRESS?embed=1&theme=dark',
+
+            // Buy Link (Jupiter/Raydium)
+            BUY_LINK: 'https://jup.ag/swap/SOL-TOKEN_ADDRESS'
+        };
+    </script>
+
+    <!-- App Modules -->
+    <script type="module" src="js/main.js"></script>
+    <script type="module" src="js/token-panel.js"></script>
+</body>
+</html>
