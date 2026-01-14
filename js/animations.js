@@ -1,42 +1,117 @@
 /**
- * Animation Controller - Ultra-Smooth VRM Animation System
- * Clean architecture with frame-rate independent interpolation
- * Eliminates jitter through proper delta-time based smoothing
+ * Animation Controller - Professional VRM Animation System
+ * Studio-quality procedural animation with:
+ * - Frame-rate independent smoothDamp (Game Programming Gems 4)
+ * - Multi-layered organic motion (breathing, micro-sway, idle variation)
+ * - Velocity-based interpolation for natural momentum
+ * - Anatomically correct bone hierarchy
  */
 
 import * as THREE from 'three';
 
-// Frame-rate independent smooth interpolation
-function smoothDamp(current, target, velocity, smoothTime, deltaTime) {
-    // Based on Game Programming Gems 4 smooth damp
+// ============================================================
+// UTILITY FUNCTIONS
+// ============================================================
+
+/**
+ * Frame-rate independent smooth interpolation with velocity
+ * Based on Game Programming Gems 4 - critical for consistent motion
+ */
+function smoothDamp(current, target, velocity, smoothTime, deltaTime, maxSpeed = Infinity) {
+    smoothTime = Math.max(0.0001, smoothTime);
     const omega = 2 / smoothTime;
     const x = omega * deltaTime;
     const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
-    const change = current - target;
+
+    let change = current - target;
+    const originalTo = target;
+
+    // Clamp maximum speed
+    const maxChange = maxSpeed * smoothTime;
+    change = Math.max(-maxChange, Math.min(maxChange, change));
+    target = current - change;
+
     const temp = (velocity + omega * change) * deltaTime;
-    velocity = (velocity - omega * temp) * exp;
-    return {
-        value: target + (change + temp) * exp,
-        velocity: velocity
-    };
+    let newVelocity = (velocity - omega * temp) * exp;
+    let newValue = target + (change + temp) * exp;
+
+    // Prevent overshoot
+    if ((originalTo - current > 0) === (newValue > originalTo)) {
+        newValue = originalTo;
+        newVelocity = (newValue - originalTo) / deltaTime;
+    }
+
+    return { value: newValue, velocity: newVelocity };
 }
 
-// Simple lerp with delta-time factor
-function dLerp(current, target, speed, dt) {
-    const t = 1 - Math.pow(1 - speed, dt * 60);
-    return current + (target - t) * t;
+/**
+ * Attempt a single smooth damp and update both value and velocity in object
+ */
+function dampValue(obj, key, velKey, target, smoothTime, dt) {
+    const result = smoothDamp(obj[key], target, obj[velKey], smoothTime, dt);
+    obj[key] = result.value;
+    obj[velKey] = result.velocity;
 }
 
-// Smooth step for easing
+/**
+ * Attempt multiple dampings to an object at once
+ */
+function dampMultiple(obj, targets, smoothTime, dt) {
+    for (const [key, velKey, target] of targets) {
+        dampValue(obj, key, velKey, target, smoothTime, dt);
+    }
+}
+
+/**
+ * Attempt frame-rate independent exponential decay lerp
+ * Good for secondary motion that doesn't need velocity tracking
+ */
+function expLerp(current, target, halfLife, dt) {
+    // halfLife = time to reach halfway to target
+    // More intuitive than arbitrary speed values
+    return target + (current - target) * Math.pow(0.5, dt / halfLife);
+}
+
+/**
+ * Attempt smooth step easing (for blink curves, etc)
+ */
 function smoothstep(t) {
+    t = Math.max(0, Math.min(1, t));
     return t * t * (3 - 2 * t);
 }
+
+/**
+ * Attempt smoother step (Ken Perlin's improved version)
+ */
+function smootherstep(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Attempt organic noise from multiple sine waves (more natural than single sine)
+ */
+function organicNoise(phase, speeds = [1, 0.7, 1.3], offsets = [0, 1, 2]) {
+    let sum = 0;
+    let weight = 0;
+    for (let i = 0; i < speeds.length; i++) {
+        const w = 1 / (i + 1); // Decreasing weights
+        sum += Math.sin(phase * speeds[i] + offsets[i]) * w;
+        weight += w;
+    }
+    return sum / weight;
+}
+
+// ============================================================
+// ANIMATION CONTROLLER
+// ============================================================
 
 export class AnimationController {
     constructor(vrmLoader) {
         this.vrmLoader = vrmLoader;
         this.initialized = false;
         this.time = 0;
+        this.frameCount = 0;
 
         // Bone cache
         this.bones = {};
@@ -46,145 +121,243 @@ export class AnimationController {
         this.isTalking = false;
         this.talkTime = 0;
 
-        // Current values with velocities for smooth damping
-        this.current = {
-            // Head
+        // ============================================================
+        // ANIMATION VALUES - All with velocity tracking for smooth motion
+        // ============================================================
+        this.anim = {
+            // Head tracking (follows mouse/look target)
             headX: 0, headY: 0, headZ: 0,
             headVelX: 0, headVelY: 0, headVelZ: 0,
-            // Neck
-            neckX: 0, neckY: 0,
-            neckVelX: 0, neckVelY: 0,
-            // Body sway
+
+            // Neck (follows head with lag)
+            neckX: 0, neckY: 0, neckZ: 0,
+            neckVelX: 0, neckVelY: 0, neckVelZ: 0,
+
+            // Spine chain (hips -> spine -> chest -> upperChest)
             hipsX: 0, hipsY: 0, hipsZ: 0,
             hipsVelX: 0, hipsVelY: 0, hipsVelZ: 0,
-            // Spine
+
             spineX: 0, spineY: 0, spineZ: 0,
-            // Chest breathing
-            chestX: 0, chestY: 0,
-            upperChestX: 0,
-            // Arms - left (natural hanging position)
-            leftUpperArmX: 0.05, leftUpperArmY: 0.05, leftUpperArmZ: 0.15,
-            leftLowerArmY: -0.15, leftLowerArmZ: 0.02,
-            leftHandX: -0.05, leftHandZ: 0.03,
-            // Arms - right
-            rightUpperArmX: 0.06, rightUpperArmY: -0.04, rightUpperArmZ: -0.12,
-            rightLowerArmY: 0.12, rightLowerArmZ: -0.02,
-            rightHandX: -0.05, rightHandZ: -0.03,
+            spineVelX: 0, spineVelY: 0, spineVelZ: 0,
+
+            chestX: 0, chestY: 0, chestZ: 0,
+            chestVelX: 0, chestVelY: 0, chestVelZ: 0,
+
+            upperChestX: 0, upperChestY: 0,
+            upperChestVelX: 0, upperChestVelY: 0,
+
+            // Shoulders (breathing motion)
+            leftShoulderZ: 0, rightShoulderZ: 0,
+            leftShoulderVelZ: 0, rightShoulderVelZ: 0,
+
+            // Arms - Left
+            leftUpperArmX: 0.08, leftUpperArmY: 0.05, leftUpperArmZ: 0.18,
+            leftUpperArmVelX: 0, leftUpperArmVelY: 0, leftUpperArmVelZ: 0,
+            leftLowerArmX: 0, leftLowerArmY: -0.12, leftLowerArmZ: 0.03,
+            leftLowerArmVelX: 0, leftLowerArmVelY: 0, leftLowerArmVelZ: 0,
+            leftHandX: -0.08, leftHandY: 0, leftHandZ: 0.05,
+            leftHandVelX: 0, leftHandVelY: 0, leftHandVelZ: 0,
+
+            // Arms - Right
+            rightUpperArmX: 0.06, rightUpperArmY: -0.04, rightUpperArmZ: -0.15,
+            rightUpperArmVelX: 0, rightUpperArmVelY: 0, rightUpperArmVelZ: 0,
+            rightLowerArmX: 0, rightLowerArmY: 0.10, rightLowerArmZ: -0.03,
+            rightLowerArmVelX: 0, rightLowerArmVelY: 0, rightLowerArmVelZ: 0,
+            rightHandX: -0.08, rightHandY: 0, rightHandZ: -0.05,
+            rightHandVelX: 0, rightHandVelY: 0, rightHandVelZ: 0,
+
+            // Legs
+            leftUpperLegX: 0, leftUpperLegZ: -0.02,
+            leftUpperLegVelX: 0, leftUpperLegVelZ: 0,
+            rightUpperLegX: 0, rightUpperLegZ: 0.02,
+            rightUpperLegVelX: 0, rightUpperLegVelZ: 0,
+            leftLowerLegX: 0.03, rightLowerLegX: 0.03,
+            leftLowerLegVelX: 0, rightLowerLegVelX: 0,
+
+            // Eyes
+            leftEyeX: 0, leftEyeY: 0,
+            rightEyeX: 0, rightEyeY: 0,
+
             // Expression
             expressionIntensity: 0.25,
+            expressionVel: 0,
             talkIntensity: 0,
+            talkVel: 0,
             blinkValue: 0
         };
 
-        // Target values
-        this.target = { ...this.current };
+        // Target values (computed each frame)
+        this.target = {};
 
-        // Look-at system
+        // ============================================================
+        // LOOK-AT SYSTEM
+        // ============================================================
         this.lookAtTarget = new THREE.Vector3(0, 1.4, 2);
         this.lookAtEnabled = true;
+        this.smoothLookAt = new THREE.Vector3(0, 1.4, 2);
+        this.lookAtVelocity = new THREE.Vector3();
 
-        // Smoothing times (higher = smoother but slower)
-        this.smoothTime = {
-            head: 0.15,      // Head follows mouse smoothly
-            neck: 0.2,       // Neck even smoother
-            body: 0.4,       // Body sway very smooth
-            arms: 0.25,      // Arms gentle movement
-            expression: 0.12 // Expressions responsive
+        // ============================================================
+        // TIMING PARAMETERS (tuned for natural motion)
+        // ============================================================
+        this.timing = {
+            // Smooth times (seconds to reach ~86% of target)
+            head: 0.12,          // Head responds quickly to mouse
+            neck: 0.18,          // Neck follows with slight delay
+            spine: 0.35,         // Spine is slower, more mass
+            hips: 0.4,           // Hips slowest - center of mass
+            arms: 0.22,          // Arms follow body
+            shoulders: 0.25,     // Shoulders with breathing
+            legs: 0.3,           // Legs subtle shifts
+            expression: 0.15     // Expressions responsive
         };
 
-        // Breathing
-        this.breathPhase = 0;
-        this.breathRate = 0.18; // Breaths per second
+        // ============================================================
+        // ORGANIC MOTION PARAMETERS
+        // ============================================================
 
-        // Idle variation
-        this.idlePhase = 0;
-        this.idleSpeed = 0.08; // Very slow variation
+        // Breathing (primary life indicator)
+        this.breath = {
+            phase: 0,
+            rate: 0.22,           // ~13 breaths per minute (relaxed)
+            depth: 1.0,           // Breath depth multiplier
+            chestExpand: 0.025,   // How much chest expands
+            shoulderRise: 0.012,  // Shoulder rise on inhale
+            spineExtend: 0.015    // Spine extension on inhale
+        };
 
-        // Blinking
-        this.blinkTimer = 0;
-        this.blinkInterval = 3.5;
-        this.isBlinking = false;
-        this.blinkProgress = 0;
+        // Idle micro-movement (prevents statue look)
+        this.idle = {
+            phase: Math.random() * Math.PI * 2, // Random start
+            speed: 0.06,          // Very slow drift
+            hipSway: 0.035,       // Side-to-side hip motion
+            spineWave: 0.012,     // S-curve through spine
+            headDrift: 0.02,      // Subtle head movement
+            weightShift: 0.015    // Weight between legs
+        };
 
-        // Expression
-        this.currentExpression = 'neutral';
-        this.targetExpressionIntensity = 0.25;
+        // Secondary motion layer (even slower variation)
+        this.secondary = {
+            phase: Math.random() * Math.PI * 2,
+            speed: 0.025,
+            intensity: 0.6
+        };
+
+        // ============================================================
+        // BLINKING
+        // ============================================================
+        this.blink = {
+            timer: Math.random() * 2,
+            interval: 3.5,
+            isBlinking: false,
+            progress: 0,
+            speed: 12,            // Blink speed (full cycle per second * speed)
+            closeRatio: 0.3       // How much of blink is closing vs opening
+        };
+
+        // ============================================================
+        // EXPRESSION STATE
+        // ============================================================
+        this.expression = {
+            current: 'neutral',
+            targetIntensity: 0.25,
+            blendSpeed: 0.15
+        };
     }
+
+    // ============================================================
+    // INITIALIZATION
+    // ============================================================
 
     async initialize() {
         if (this.initialized || !this.vrmLoader.vrm) return;
 
         const vrm = this.vrmLoader.vrm;
+        const getBone = (name) => vrm.humanoid.getNormalizedBoneNode(name);
 
         // Cache all bones
         this.bones = {
-            hips: vrm.humanoid.getNormalizedBoneNode('hips'),
-            spine: vrm.humanoid.getNormalizedBoneNode('spine'),
-            chest: vrm.humanoid.getNormalizedBoneNode('chest'),
-            upperChest: vrm.humanoid.getNormalizedBoneNode('upperChest'),
-            neck: vrm.humanoid.getNormalizedBoneNode('neck'),
-            head: vrm.humanoid.getNormalizedBoneNode('head'),
-            leftShoulder: vrm.humanoid.getNormalizedBoneNode('leftShoulder'),
-            rightShoulder: vrm.humanoid.getNormalizedBoneNode('rightShoulder'),
-            leftUpperArm: vrm.humanoid.getNormalizedBoneNode('leftUpperArm'),
-            rightUpperArm: vrm.humanoid.getNormalizedBoneNode('rightUpperArm'),
-            leftLowerArm: vrm.humanoid.getNormalizedBoneNode('leftLowerArm'),
-            rightLowerArm: vrm.humanoid.getNormalizedBoneNode('rightLowerArm'),
-            leftHand: vrm.humanoid.getNormalizedBoneNode('leftHand'),
-            rightHand: vrm.humanoid.getNormalizedBoneNode('rightHand'),
-            leftUpperLeg: vrm.humanoid.getNormalizedBoneNode('leftUpperLeg'),
-            rightUpperLeg: vrm.humanoid.getNormalizedBoneNode('rightUpperLeg'),
-            leftLowerLeg: vrm.humanoid.getNormalizedBoneNode('leftLowerLeg'),
-            rightLowerLeg: vrm.humanoid.getNormalizedBoneNode('rightLowerLeg'),
-            leftEye: vrm.humanoid.getNormalizedBoneNode('leftEye'),
-            rightEye: vrm.humanoid.getNormalizedBoneNode('rightEye'),
-            // Fingers
-            leftThumbProximal: vrm.humanoid.getNormalizedBoneNode('leftThumbProximal'),
-            leftThumbIntermediate: vrm.humanoid.getNormalizedBoneNode('leftThumbIntermediate'),
-            leftThumbDistal: vrm.humanoid.getNormalizedBoneNode('leftThumbDistal'),
-            leftIndexProximal: vrm.humanoid.getNormalizedBoneNode('leftIndexProximal'),
-            leftIndexIntermediate: vrm.humanoid.getNormalizedBoneNode('leftIndexIntermediate'),
-            leftIndexDistal: vrm.humanoid.getNormalizedBoneNode('leftIndexDistal'),
-            leftMiddleProximal: vrm.humanoid.getNormalizedBoneNode('leftMiddleProximal'),
-            leftMiddleIntermediate: vrm.humanoid.getNormalizedBoneNode('leftMiddleIntermediate'),
-            leftMiddleDistal: vrm.humanoid.getNormalizedBoneNode('leftMiddleDistal'),
-            leftRingProximal: vrm.humanoid.getNormalizedBoneNode('leftRingProximal'),
-            leftRingIntermediate: vrm.humanoid.getNormalizedBoneNode('leftRingIntermediate'),
-            leftRingDistal: vrm.humanoid.getNormalizedBoneNode('leftRingDistal'),
-            leftLittleProximal: vrm.humanoid.getNormalizedBoneNode('leftLittleProximal'),
-            leftLittleIntermediate: vrm.humanoid.getNormalizedBoneNode('leftLittleIntermediate'),
-            leftLittleDistal: vrm.humanoid.getNormalizedBoneNode('leftLittleDistal'),
-            rightThumbProximal: vrm.humanoid.getNormalizedBoneNode('rightThumbProximal'),
-            rightThumbIntermediate: vrm.humanoid.getNormalizedBoneNode('rightThumbIntermediate'),
-            rightThumbDistal: vrm.humanoid.getNormalizedBoneNode('rightThumbDistal'),
-            rightIndexProximal: vrm.humanoid.getNormalizedBoneNode('rightIndexProximal'),
-            rightIndexIntermediate: vrm.humanoid.getNormalizedBoneNode('rightIndexIntermediate'),
-            rightIndexDistal: vrm.humanoid.getNormalizedBoneNode('rightIndexDistal'),
-            rightMiddleProximal: vrm.humanoid.getNormalizedBoneNode('rightMiddleProximal'),
-            rightMiddleIntermediate: vrm.humanoid.getNormalizedBoneNode('rightMiddleIntermediate'),
-            rightMiddleDistal: vrm.humanoid.getNormalizedBoneNode('rightMiddleDistal'),
-            rightRingProximal: vrm.humanoid.getNormalizedBoneNode('rightRingProximal'),
-            rightRingIntermediate: vrm.humanoid.getNormalizedBoneNode('rightRingIntermediate'),
-            rightRingDistal: vrm.humanoid.getNormalizedBoneNode('rightRingDistal'),
-            rightLittleProximal: vrm.humanoid.getNormalizedBoneNode('rightLittleProximal'),
-            rightLittleIntermediate: vrm.humanoid.getNormalizedBoneNode('rightLittleIntermediate'),
-            rightLittleDistal: vrm.humanoid.getNormalizedBoneNode('rightLittleDistal')
+            // Core
+            hips: getBone('hips'),
+            spine: getBone('spine'),
+            chest: getBone('chest'),
+            upperChest: getBone('upperChest'),
+            neck: getBone('neck'),
+            head: getBone('head'),
+
+            // Shoulders
+            leftShoulder: getBone('leftShoulder'),
+            rightShoulder: getBone('rightShoulder'),
+
+            // Arms
+            leftUpperArm: getBone('leftUpperArm'),
+            rightUpperArm: getBone('rightUpperArm'),
+            leftLowerArm: getBone('leftLowerArm'),
+            rightLowerArm: getBone('rightLowerArm'),
+            leftHand: getBone('leftHand'),
+            rightHand: getBone('rightHand'),
+
+            // Legs
+            leftUpperLeg: getBone('leftUpperLeg'),
+            rightUpperLeg: getBone('rightUpperLeg'),
+            leftLowerLeg: getBone('leftLowerLeg'),
+            rightLowerLeg: getBone('rightLowerLeg'),
+
+            // Eyes
+            leftEye: getBone('leftEye'),
+            rightEye: getBone('rightEye'),
+
+            // Fingers - Left
+            leftThumbProximal: getBone('leftThumbProximal'),
+            leftThumbIntermediate: getBone('leftThumbIntermediate'),
+            leftThumbDistal: getBone('leftThumbDistal'),
+            leftIndexProximal: getBone('leftIndexProximal'),
+            leftIndexIntermediate: getBone('leftIndexIntermediate'),
+            leftIndexDistal: getBone('leftIndexDistal'),
+            leftMiddleProximal: getBone('leftMiddleProximal'),
+            leftMiddleIntermediate: getBone('leftMiddleIntermediate'),
+            leftMiddleDistal: getBone('leftMiddleDistal'),
+            leftRingProximal: getBone('leftRingProximal'),
+            leftRingIntermediate: getBone('leftRingIntermediate'),
+            leftRingDistal: getBone('leftRingDistal'),
+            leftLittleProximal: getBone('leftLittleProximal'),
+            leftLittleIntermediate: getBone('leftLittleIntermediate'),
+            leftLittleDistal: getBone('leftLittleDistal'),
+
+            // Fingers - Right
+            rightThumbProximal: getBone('rightThumbProximal'),
+            rightThumbIntermediate: getBone('rightThumbIntermediate'),
+            rightThumbDistal: getBone('rightThumbDistal'),
+            rightIndexProximal: getBone('rightIndexProximal'),
+            rightIndexIntermediate: getBone('rightIndexIntermediate'),
+            rightIndexDistal: getBone('rightIndexDistal'),
+            rightMiddleProximal: getBone('rightMiddleProximal'),
+            rightMiddleIntermediate: getBone('rightMiddleIntermediate'),
+            rightMiddleDistal: getBone('rightMiddleDistal'),
+            rightRingProximal: getBone('rightRingProximal'),
+            rightRingIntermediate: getBone('rightRingIntermediate'),
+            rightRingDistal: getBone('rightRingDistal'),
+            rightLittleProximal: getBone('rightLittleProximal'),
+            rightLittleIntermediate: getBone('rightLittleIntermediate'),
+            rightLittleDistal: getBone('rightLittleDistal')
         };
 
-        // Verify we got the essential bones
-        if (!this.bones.hips || !this.bones.leftUpperArm || !this.bones.rightUpperArm) {
-            console.warn('Essential bones not found - model may not be fully loaded');
-            return; // Don't mark initialized if bones aren't ready
+        // Verify essential bones
+        if (!this.bones.hips || !this.bones.spine || !this.bones.head) {
+            console.warn('Essential bones not found - model may not be VRM compatible');
+            return;
         }
 
-        console.log('Ultra-smooth animation system initialized');
+        console.log('Professional animation system initialized');
         this.initialized = true;
 
-        // IMMEDIATELY apply initial pose to prevent T-pose flash
-        // Copy current values to target to avoid animation jumps
-        this.target = { ...this.current };
+        // Apply initial pose immediately
         this.applyToBones();
     }
+
+    // ============================================================
+    // PUBLIC API
+    // ============================================================
 
     setLookAtTarget(x, y, z) {
         this.lookAtTarget.set(x, y, z);
@@ -198,449 +371,32 @@ export class AnimationController {
             case 'talking':
                 this.isTalking = true;
                 this.talkTime = 0;
-                this.target.talkIntensity = 1;
-                this.currentExpression = 'happy';
-                this.targetExpressionIntensity = 0.5;
+                this.expression.current = 'happy';
+                this.expression.targetIntensity = 0.5;
                 break;
             case 'thinking':
                 this.isTalking = false;
-                this.target.talkIntensity = 0;
-                this.currentExpression = 'neutral';
-                this.targetExpressionIntensity = 0.3;
+                this.expression.current = 'neutral';
+                this.expression.targetIntensity = 0.3;
                 break;
             case 'flirty':
                 this.isTalking = false;
-                this.target.talkIntensity = 0;
-                this.currentExpression = 'happy';
-                this.targetExpressionIntensity = 0.7;
+                this.expression.current = 'happy';
+                this.expression.targetIntensity = 0.7;
                 break;
+            case 'idle':
             default:
                 this.isTalking = false;
-                this.target.talkIntensity = 0;
-                this.currentExpression = 'neutral';
-                this.targetExpressionIntensity = 0.25;
+                this.expression.current = 'neutral';
+                this.expression.targetIntensity = 0.25;
         }
     }
 
     setExpression(name, intensity = 0.5) {
-        this.currentExpression = name;
-        this.targetExpressionIntensity = intensity;
+        this.expression.current = name;
+        this.expression.targetIntensity = intensity;
     }
 
-    update(deltaTime, elapsedTime) {
-        if (!this.vrmLoader.vrm) return;
-
-        if (!this.initialized) {
-            this.initialize();
-            // Don't return - continue to apply animation this frame
-            // to prevent T-pose flicker during initialization
-            if (!this.initialized) return; // Only return if init truly failed
-        }
-
-        // Clamp delta to prevent jumps
-        const dt = Math.min(deltaTime, 0.05);
-        this.time = elapsedTime;
-
-        // Update phase timers
-        this.breathPhase += dt * this.breathRate * Math.PI * 2;
-        this.idlePhase += dt * this.idleSpeed * Math.PI * 2;
-
-        // Calculate target values based on animations
-        this.calculateTargets(dt);
-
-        // Smooth damp all values
-        this.smoothUpdate(dt);
-
-        // Apply to bones
-        this.applyToBones();
-
-        // Update expressions
-        this.updateExpressions(dt);
-    }
-
-    calculateTargets(dt) {
-        const breath = Math.sin(this.breathPhase);
-        const idle1 = Math.sin(this.idlePhase);
-        const idle2 = Math.sin(this.idlePhase * 0.7 + 1);
-        const idle3 = Math.sin(this.idlePhase * 1.3 + 2);
-
-        // === HEAD LOOK-AT ===
-        if (this.lookAtEnabled && this.bones.head) {
-            const headPos = new THREE.Vector3();
-            this.bones.head.getWorldPosition(headPos);
-
-            const direction = new THREE.Vector3()
-                .subVectors(this.lookAtTarget, headPos)
-                .normalize();
-
-            // Calculate look angles
-            const lookY = Math.atan2(direction.x, direction.z);
-            const lookX = -Math.asin(Math.max(-1, Math.min(1, direction.y))) * 0.4;
-
-            // Clamp to natural range
-            this.target.headY = Math.max(-0.5, Math.min(0.5, lookY));
-            this.target.headX = Math.max(-0.25, Math.min(0.35, lookX));
-            // Flirty head tilt - slight consistent tilt with subtle variation
-            this.target.headZ = 0.04 + idle1 * 0.025;
-        }
-
-        // Neck follows head partially
-        this.target.neckY = this.target.headY * 0.35;
-        this.target.neckX = this.target.headX * 0.25;
-
-        // === BODY SWAY - Flowing natural movement ===
-        // More movement in hips for feminine sway
-        this.target.hipsY = idle1 * 0.04 + idle2 * 0.02;
-        this.target.hipsZ = 0.02 + idle2 * 0.025; // Hip tilt with sway
-        this.target.hipsX = idle3 * 0.015; // Forward/back hip movement
-
-        // === SPINE / BREATHING - More flowing ===
-        this.target.spineX = breath * 0.02 + idle1 * 0.01;
-        this.target.spineY = -this.target.hipsY * 0.6; // Counter-rotate spine
-        this.target.spineZ = idle2 * 0.015; // Side bend
-        this.target.chestX = breath * 0.03 + idle3 * 0.008;
-        this.target.chestY = idle1 * 0.02; // Chest twist
-        this.target.upperChestX = breath * 0.015;
-
-        // === ARMS - Natural hanging, close to body ===
-        const armSway = idle3 * 0.02;
-
-        // Left arm - hanging naturally at side
-        this.target.leftUpperArmX = 0.05 + idle1 * 0.03; // Slight forward
-        this.target.leftUpperArmY = 0.05 + idle2 * 0.02; // Minimal rotation
-        this.target.leftUpperArmZ = 0.15 + idle1 * 0.04 + armSway; // Close to body!
-        this.target.leftLowerArmY = -0.15 + idle2 * 0.08; // Natural bend
-        this.target.leftLowerArmZ = 0.02 + idle3 * 0.03;
-        this.target.leftHandX = -0.05 + idle1 * 0.04; // Relaxed wrist
-        this.target.leftHandZ = 0.03 + idle2 * 0.02;
-
-        // Right arm - slightly different for asymmetry
-        this.target.rightUpperArmX = 0.06 + idle1 * 0.025;
-        this.target.rightUpperArmY = -0.04 + idle2 * 0.02;
-        this.target.rightUpperArmZ = -0.12 - idle1 * 0.04 - armSway; // Close to body!
-        this.target.rightLowerArmY = 0.12 - idle2 * 0.08;
-        this.target.rightLowerArmZ = -0.02 - idle3 * 0.03;
-        this.target.rightHandX = -0.05 + idle1 * 0.04;
-        this.target.rightHandZ = -0.03 - idle2 * 0.02;
-    }
-
-    smoothUpdate(dt) {
-        const c = this.current;
-        const t = this.target;
-        const st = this.smoothTime;
-        let result;
-
-        // Head - smooth damp for natural movement
-        result = smoothDamp(c.headX, t.headX, c.headVelX, st.head, dt);
-        c.headX = result.value; c.headVelX = result.velocity;
-
-        result = smoothDamp(c.headY, t.headY, c.headVelY, st.head, dt);
-        c.headY = result.value; c.headVelY = result.velocity;
-
-        result = smoothDamp(c.headZ, t.headZ, c.headVelZ, st.head, dt);
-        c.headZ = result.value; c.headVelZ = result.velocity;
-
-        // Neck
-        result = smoothDamp(c.neckX, t.neckX, c.neckVelX, st.neck, dt);
-        c.neckX = result.value; c.neckVelX = result.velocity;
-
-        result = smoothDamp(c.neckY, t.neckY, c.neckVelY, st.neck, dt);
-        c.neckY = result.value; c.neckVelY = result.velocity;
-
-        // Body - extra smooth
-        result = smoothDamp(c.hipsX, t.hipsX, c.hipsVelX, st.body, dt);
-        c.hipsX = result.value; c.hipsVelX = result.velocity;
-
-        result = smoothDamp(c.hipsY, t.hipsY, c.hipsVelY, st.body, dt);
-        c.hipsY = result.value; c.hipsVelY = result.velocity;
-
-        result = smoothDamp(c.hipsZ, t.hipsZ, c.hipsVelZ, st.body, dt);
-        c.hipsZ = result.value; c.hipsVelZ = result.velocity;
-
-        // Spine/chest - direct smooth (no velocity needed, slow movement)
-        const bodyFactor = 1 - Math.pow(0.03, dt); // Slower for more fluid movement
-        c.spineX += (t.spineX - c.spineX) * bodyFactor;
-        c.spineY += (t.spineY - c.spineY) * bodyFactor;
-        c.spineZ += (t.spineZ - c.spineZ) * bodyFactor;
-        c.chestX += (t.chestX - c.chestX) * bodyFactor;
-        c.chestY += (t.chestY - c.chestY) * bodyFactor;
-        c.upperChestX += (t.upperChestX - c.upperChestX) * bodyFactor;
-
-        // Arms - smooth interpolation
-        const armFactor = 1 - Math.pow(0.08, dt);
-        c.leftUpperArmX += (t.leftUpperArmX - c.leftUpperArmX) * armFactor;
-        c.leftUpperArmY += (t.leftUpperArmY - c.leftUpperArmY) * armFactor;
-        c.leftUpperArmZ += (t.leftUpperArmZ - c.leftUpperArmZ) * armFactor;
-        c.leftLowerArmY += (t.leftLowerArmY - c.leftLowerArmY) * armFactor;
-        c.leftLowerArmZ += (t.leftLowerArmZ - c.leftLowerArmZ) * armFactor;
-        c.leftHandX += (t.leftHandX - c.leftHandX) * armFactor;
-        c.leftHandZ += (t.leftHandZ - c.leftHandZ) * armFactor;
-
-        c.rightUpperArmX += (t.rightUpperArmX - c.rightUpperArmX) * armFactor;
-        c.rightUpperArmY += (t.rightUpperArmY - c.rightUpperArmY) * armFactor;
-        c.rightUpperArmZ += (t.rightUpperArmZ - c.rightUpperArmZ) * armFactor;
-        c.rightLowerArmY += (t.rightLowerArmY - c.rightLowerArmY) * armFactor;
-        c.rightLowerArmZ += (t.rightLowerArmZ - c.rightLowerArmZ) * armFactor;
-        c.rightHandX += (t.rightHandX - c.rightHandX) * armFactor;
-        c.rightHandZ += (t.rightHandZ - c.rightHandZ) * armFactor;
-
-        // Expressions
-        const exprFactor = 1 - Math.pow(0.1, dt);
-        c.expressionIntensity += (this.targetExpressionIntensity - c.expressionIntensity) * exprFactor;
-        c.talkIntensity += (t.talkIntensity - c.talkIntensity) * exprFactor;
-    }
-
-    applyToBones() {
-        const b = this.bones;
-        const c = this.current;
-
-        // Head
-        if (b.head) {
-            b.head.rotation.x = c.headX;
-            b.head.rotation.y = c.headY;
-            b.head.rotation.z = c.headZ;
-        }
-
-        // Neck
-        if (b.neck) {
-            b.neck.rotation.x = c.neckX;
-            b.neck.rotation.y = c.neckY;
-        }
-
-        // Hips - full flowing movement
-        if (b.hips) {
-            b.hips.rotation.x = c.hipsX;
-            b.hips.rotation.y = c.hipsY;
-            b.hips.rotation.z = c.hipsZ;
-        }
-
-        // Spine - flowing counter-rotation
-        if (b.spine) {
-            b.spine.rotation.x = c.spineX;
-            b.spine.rotation.y = c.spineY;
-            b.spine.rotation.z = c.spineZ;
-        }
-
-        // Chest - breathing and twist
-        if (b.chest) {
-            b.chest.rotation.x = c.chestX;
-            b.chest.rotation.y = c.chestY;
-        }
-
-        // Upper chest
-        if (b.upperChest) {
-            b.upperChest.rotation.x = c.upperChestX;
-        }
-
-        // Left arm
-        if (b.leftUpperArm) {
-            b.leftUpperArm.rotation.x = c.leftUpperArmX;
-            b.leftUpperArm.rotation.y = c.leftUpperArmY;
-            b.leftUpperArm.rotation.z = c.leftUpperArmZ;
-        }
-        if (b.leftLowerArm) {
-            b.leftLowerArm.rotation.y = c.leftLowerArmY;
-            b.leftLowerArm.rotation.z = c.leftLowerArmZ;
-        }
-        if (b.leftHand) {
-            b.leftHand.rotation.x = c.leftHandX;
-            b.leftHand.rotation.z = c.leftHandZ;
-        }
-
-        // Right arm
-        if (b.rightUpperArm) {
-            b.rightUpperArm.rotation.x = c.rightUpperArmX;
-            b.rightUpperArm.rotation.y = c.rightUpperArmY;
-            b.rightUpperArm.rotation.z = c.rightUpperArmZ;
-        }
-        if (b.rightLowerArm) {
-            b.rightLowerArm.rotation.y = c.rightLowerArmY;
-            b.rightLowerArm.rotation.z = c.rightLowerArmZ;
-        }
-        if (b.rightHand) {
-            b.rightHand.rotation.x = c.rightHandX;
-            b.rightHand.rotation.z = c.rightHandZ;
-        }
-
-        // Shoulders - subtle breathing motion
-        const shoulderBreath = Math.sin(this.breathPhase) * 0.01;
-        if (b.leftShoulder) {
-            b.leftShoulder.rotation.z = shoulderBreath;
-        }
-        if (b.rightShoulder) {
-            b.rightShoulder.rotation.z = -shoulderBreath;
-        }
-
-        // Legs - subtle weight shift
-        const legShift = Math.sin(this.idlePhase * 0.5) * 0.015;
-        if (b.leftUpperLeg) {
-            b.leftUpperLeg.rotation.x = legShift;
-            b.leftUpperLeg.rotation.z = -0.01 + legShift * 0.5;
-        }
-        if (b.rightUpperLeg) {
-            b.rightUpperLeg.rotation.x = -legShift;
-            b.rightUpperLeg.rotation.z = 0.01 - legShift * 0.5;
-        }
-        if (b.leftLowerLeg) {
-            b.leftLowerLeg.rotation.x = 0.02 + legShift * 0.8;
-        }
-        if (b.rightLowerLeg) {
-            b.rightLowerLeg.rotation.x = 0.02 - legShift * 0.8;
-        }
-
-        // Eyes follow head direction more
-        const eyeMultiplier = 0.8;
-        if (b.leftEye) {
-            b.leftEye.rotation.x = c.headX * eyeMultiplier * 0.3;
-            b.leftEye.rotation.y = c.headY * eyeMultiplier;
-        }
-        if (b.rightEye) {
-            b.rightEye.rotation.x = c.headX * eyeMultiplier * 0.3;
-            b.rightEye.rotation.y = c.headY * eyeMultiplier;
-        }
-
-        // Apply finger poses
-        this.applyFingerPose();
-    }
-
-    applyFingerPose() {
-        const b = this.bones;
-        const fingerWave = Math.sin(this.idlePhase * 0.3);
-
-        // Relaxed, natural finger curl
-        const relaxed = {
-            proximal: 0.1,
-            intermediate: 0.15,
-            distal: 0.08
-        };
-
-        // Left hand fingers
-        ['Index', 'Middle', 'Ring', 'Little'].forEach((finger, i) => {
-            const offset = fingerWave * 0.015 * (1 + i * 0.1);
-
-            const prox = b[`left${finger}Proximal`];
-            const inter = b[`left${finger}Intermediate`];
-            const dist = b[`left${finger}Distal`];
-
-            if (prox) prox.rotation.z = relaxed.proximal + offset;
-            if (inter) inter.rotation.z = relaxed.intermediate + offset * 0.7;
-            if (dist) dist.rotation.z = relaxed.distal + offset * 0.4;
-        });
-
-        // Left thumb
-        if (b.leftThumbProximal) b.leftThumbProximal.rotation.z = 0.06;
-        if (b.leftThumbIntermediate) b.leftThumbIntermediate.rotation.z = 0.1;
-        if (b.leftThumbDistal) b.leftThumbDistal.rotation.z = 0.03;
-
-        // Right hand fingers (mirror)
-        ['Index', 'Middle', 'Ring', 'Little'].forEach((finger, i) => {
-            const offset = fingerWave * 0.015 * (1 + i * 0.1);
-
-            const prox = b[`right${finger}Proximal`];
-            const inter = b[`right${finger}Intermediate`];
-            const dist = b[`right${finger}Distal`];
-
-            if (prox) prox.rotation.z = -(relaxed.proximal + offset);
-            if (inter) inter.rotation.z = -(relaxed.intermediate + offset * 0.7);
-            if (dist) dist.rotation.z = -(relaxed.distal + offset * 0.4);
-        });
-
-        // Right thumb
-        if (b.rightThumbProximal) b.rightThumbProximal.rotation.z = -0.06;
-        if (b.rightThumbIntermediate) b.rightThumbIntermediate.rotation.z = -0.1;
-        if (b.rightThumbDistal) b.rightThumbDistal.rotation.z = -0.03;
-    }
-
-    updateExpressions(dt) {
-        if (!this.vrmLoader.vrm) return;
-
-        // Reset all expressions first
-        this.vrmLoader.resetExpressions();
-
-        // Apply current expression
-        const intensity = this.current.expressionIntensity;
-        switch (this.currentExpression) {
-            case 'happy':
-                this.vrmLoader.setHappy(intensity);
-                break;
-            case 'sad':
-                this.vrmLoader.setSad(intensity);
-                break;
-            case 'surprised':
-                this.vrmLoader.setSurprised(intensity);
-                break;
-            case 'angry':
-                this.vrmLoader.setAngry(intensity);
-                break;
-            default:
-                // Subtle happy for neutral
-                this.vrmLoader.setHappy(intensity * 0.15);
-        }
-
-        // Blinking
-        this.updateBlinking(dt);
-
-        // Talking mouth
-        if (this.isTalking && this.current.talkIntensity > 0.1) {
-            this.talkTime += dt;
-
-            // Natural speech pattern with pauses
-            const base = Math.sin(this.talkTime * 9) * 0.5 + 0.5;
-            const variation = Math.sin(this.talkTime * 5.3) * 0.3;
-            const pause = Math.sin(this.talkTime * 1.5) > 0.3 ? 1 : 0.2;
-
-            const mouthOpen = (base * 0.3 + variation * 0.15) * pause * this.current.talkIntensity;
-            this.vrmLoader.setMouthOpen(Math.max(0, Math.min(0.5, mouthOpen)));
-        }
-
-        // Flirty wink
-        if (this.state === 'flirty') {
-            const winkCycle = this.time % 4;
-            if (winkCycle > 0.5 && winkCycle < 1.2) {
-                this.vrmLoader.setWink(true);
-            }
-        }
-    }
-
-    updateBlinking(dt) {
-        this.blinkTimer += dt;
-
-        if (this.isBlinking) {
-            this.blinkProgress += dt * 10;
-
-            if (this.blinkProgress >= 1) {
-                this.isBlinking = false;
-                this.blinkProgress = 0;
-            }
-
-            // Smooth blink curve
-            let blinkVal;
-            if (this.blinkProgress < 0.35) {
-                // Close eyes
-                blinkVal = smoothstep(this.blinkProgress / 0.35);
-            } else {
-                // Open eyes
-                blinkVal = 1 - smoothstep((this.blinkProgress - 0.35) / 0.65);
-            }
-
-            this.current.blinkValue = blinkVal;
-            this.vrmLoader.setBlink(blinkVal);
-
-        } else if (this.blinkTimer >= this.blinkInterval) {
-            this.blinkTimer = 0;
-            this.blinkInterval = 2.5 + Math.random() * 4;
-            this.isBlinking = true;
-            this.blinkProgress = 0;
-        } else {
-            // Ensure eyes are open when not blinking
-            if (this.current.blinkValue > 0) {
-                this.current.blinkValue *= 0.8;
-                this.vrmLoader.setBlink(this.current.blinkValue);
-            }
-        }
-    }
-
-    // Public API
     stopTalking() {
         this.setState('idle');
         this.setExpression('happy', 0.3);
@@ -675,19 +431,593 @@ export class AnimationController {
         }
     }
 
+    // ============================================================
+    // MAIN UPDATE LOOP
+    // ============================================================
+
+    update(deltaTime, elapsedTime) {
+        if (!this.vrmLoader.vrm) return;
+
+        if (!this.initialized) {
+            this.initialize();
+            if (!this.initialized) return;
+        }
+
+        // Clamp delta to prevent large jumps (tab switching, etc)
+        const dt = Math.min(deltaTime, 0.1);
+        this.time = elapsedTime;
+        this.frameCount++;
+
+        // Update all animation phases
+        this.updatePhases(dt);
+
+        // Calculate target poses
+        this.calculateTargets(dt);
+
+        // Smooth interpolation to targets
+        this.smoothUpdate(dt);
+
+        // Apply to skeleton
+        this.applyToBones();
+
+        // Update facial expressions
+        this.updateExpressions(dt);
+    }
+
+    // ============================================================
+    // PHASE UPDATES
+    // ============================================================
+
+    updatePhases(dt) {
+        // Breathing - organic rhythm
+        this.breath.phase += dt * this.breath.rate * Math.PI * 2;
+
+        // Idle motion - very slow drift
+        this.idle.phase += dt * this.idle.speed * Math.PI * 2;
+
+        // Secondary layer - even slower
+        this.secondary.phase += dt * this.secondary.speed * Math.PI * 2;
+    }
+
+    // ============================================================
+    // TARGET CALCULATION
+    // ============================================================
+
+    calculateTargets(dt) {
+        const a = this.anim;
+        const t = this.timing;
+
+        // Organic noise values for natural motion
+        const breathCurve = this.getBreathCurve();
+        const idleNoise = this.getIdleNoise();
+        const secondaryNoise = this.getSecondaryNoise();
+
+        // ========== HEAD LOOK-AT ==========
+        this.calculateHeadTargets(idleNoise);
+
+        // ========== NECK (follows head with lag) ==========
+        this.target.neckX = a.headX * 0.3;
+        this.target.neckY = a.headY * 0.35;
+        this.target.neckZ = a.headZ * 0.25;
+
+        // ========== SPINE CHAIN (bottom-up wave) ==========
+        this.calculateSpineTargets(breathCurve, idleNoise, secondaryNoise);
+
+        // ========== SHOULDERS (breathing) ==========
+        const shoulderBreath = breathCurve.inhale * this.breath.shoulderRise;
+        this.target.leftShoulderZ = shoulderBreath + idleNoise.subtle * 0.005;
+        this.target.rightShoulderZ = -shoulderBreath - idleNoise.subtle * 0.005;
+
+        // ========== ARMS (natural hanging with sway) ==========
+        this.calculateArmTargets(idleNoise, secondaryNoise);
+
+        // ========== LEGS (weight shift) ==========
+        this.calculateLegTargets(idleNoise);
+
+        // ========== EYES (follow head direction) ==========
+        this.target.leftEyeX = a.headX * 0.25;
+        this.target.leftEyeY = a.headY * 0.7;
+        this.target.rightEyeX = a.headX * 0.25;
+        this.target.rightEyeY = a.headY * 0.7;
+    }
+
+    getBreathCurve() {
+        // Asymmetric breath - inhale faster than exhale
+        const phase = this.breath.phase;
+        const raw = Math.sin(phase);
+
+        // Ease the breath curve for more natural feel
+        const inhale = Math.max(0, raw);
+        const exhale = Math.max(0, -raw);
+
+        return {
+            raw,
+            inhale: smoothstep(inhale),
+            exhale: smoothstep(exhale),
+            chest: raw * 0.5 + 0.5  // 0-1 range for chest expansion
+        };
+    }
+
+    getIdleNoise() {
+        const phase = this.idle.phase;
+        return {
+            // Primary sway
+            sway: organicNoise(phase, [1, 0.7, 1.3], [0, 1.1, 2.3]),
+            // Perpendicular movement
+            drift: organicNoise(phase, [0.8, 1.1, 0.6], [0.5, 1.7, 3.1]),
+            // Very subtle micro-motion
+            subtle: organicNoise(phase * 2, [1, 1.4, 0.9], [0, 0.8, 1.6]),
+            // Weight shift
+            weight: organicNoise(phase * 0.5, [1, 0.6], [0, 1.2])
+        };
+    }
+
+    getSecondaryNoise() {
+        const phase = this.secondary.phase;
+        const intensity = this.secondary.intensity;
+        return {
+            x: organicNoise(phase, [1, 0.7], [0, 2]) * intensity,
+            y: organicNoise(phase, [0.8, 1.2], [1, 0]) * intensity,
+            z: organicNoise(phase, [0.9, 0.6], [0.5, 1.5]) * intensity
+        };
+    }
+
+    calculateHeadTargets(idleNoise) {
+        if (!this.lookAtEnabled || !this.bones.head) return;
+
+        // Get head world position
+        const headPos = new THREE.Vector3();
+        this.bones.head.getWorldPosition(headPos);
+
+        // Smooth the look-at target itself (prevents jerky mouse movement)
+        const lookDt = 0.016; // Assume ~60fps for look smoothing
+        this.smoothLookAt.x = expLerp(this.smoothLookAt.x, this.lookAtTarget.x, 0.08, lookDt);
+        this.smoothLookAt.y = expLerp(this.smoothLookAt.y, this.lookAtTarget.y, 0.08, lookDt);
+        this.smoothLookAt.z = expLerp(this.smoothLookAt.z, this.lookAtTarget.z, 0.08, lookDt);
+
+        // Calculate look direction
+        const direction = new THREE.Vector3()
+            .subVectors(this.smoothLookAt, headPos)
+            .normalize();
+
+        // Convert to rotation angles
+        const lookY = Math.atan2(direction.x, direction.z);
+        const lookX = -Math.asin(Math.max(-1, Math.min(1, direction.y))) * 0.5;
+
+        // Clamp to natural human range
+        this.target.headY = Math.max(-0.6, Math.min(0.6, lookY));
+        this.target.headX = Math.max(-0.3, Math.min(0.4, lookX));
+
+        // Flirty head tilt with subtle variation
+        this.target.headZ = 0.05 + idleNoise.subtle * 0.02 + this.idle.headDrift * idleNoise.drift;
+    }
+
+    calculateSpineTargets(breathCurve, idleNoise, secondaryNoise) {
+        const breath = breathCurve;
+        const hipSway = this.idle.hipSway;
+        const spineWave = this.idle.spineWave;
+
+        // HIPS - Center of mass, slowest movement
+        this.target.hipsX = idleNoise.drift * 0.01 + secondaryNoise.x * 0.008;
+        this.target.hipsY = idleNoise.sway * hipSway + secondaryNoise.y * 0.015;
+        this.target.hipsZ = 0.02 + idleNoise.drift * 0.02; // Slight forward tilt (feminine)
+
+        // SPINE - Counter-rotation creates S-curve
+        this.target.spineX = breath.raw * this.breath.spineExtend + idleNoise.subtle * 0.008;
+        this.target.spineY = -this.target.hipsY * 0.5; // Counter-rotate
+        this.target.spineZ = idleNoise.sway * spineWave;
+
+        // CHEST - Breathing focus
+        this.target.chestX = breath.chest * this.breath.chestExpand + idleNoise.drift * 0.006;
+        this.target.chestY = -this.target.spineY * 0.4; // Continue counter-rotation
+        this.target.chestZ = idleNoise.subtle * 0.008;
+
+        // UPPER CHEST - Top of breath, subtle
+        this.target.upperChestX = breath.chest * this.breath.chestExpand * 0.6;
+        this.target.upperChestY = idleNoise.sway * 0.01;
+    }
+
+    calculateArmTargets(idleNoise, secondaryNoise) {
+        const armSway = idleNoise.sway * 0.025;
+        const armDrift = idleNoise.drift * 0.02;
+
+        // LEFT ARM - Natural hang with organic motion
+        this.target.leftUpperArmX = 0.08 + idleNoise.drift * 0.025 + secondaryNoise.x * 0.015;
+        this.target.leftUpperArmY = 0.05 + idleNoise.subtle * 0.02;
+        this.target.leftUpperArmZ = 0.18 + armSway + secondaryNoise.z * 0.02; // Close to body!
+
+        this.target.leftLowerArmX = idleNoise.subtle * 0.015;
+        this.target.leftLowerArmY = -0.12 + armDrift * 0.5;
+        this.target.leftLowerArmZ = 0.03 + idleNoise.sway * 0.02;
+
+        this.target.leftHandX = -0.08 + idleNoise.drift * 0.03;
+        this.target.leftHandY = idleNoise.subtle * 0.02;
+        this.target.leftHandZ = 0.05 + idleNoise.sway * 0.015;
+
+        // RIGHT ARM - Slightly different for asymmetry
+        this.target.rightUpperArmX = 0.06 + idleNoise.drift * 0.02 + secondaryNoise.x * 0.012;
+        this.target.rightUpperArmY = -0.04 + idleNoise.subtle * 0.018;
+        this.target.rightUpperArmZ = -0.15 - armSway - secondaryNoise.z * 0.018; // Close to body!
+
+        this.target.rightLowerArmX = idleNoise.subtle * 0.012;
+        this.target.rightLowerArmY = 0.10 - armDrift * 0.4;
+        this.target.rightLowerArmZ = -0.03 - idleNoise.sway * 0.018;
+
+        this.target.rightHandX = -0.08 + idleNoise.drift * 0.025;
+        this.target.rightHandY = idleNoise.subtle * 0.015;
+        this.target.rightHandZ = -0.05 - idleNoise.sway * 0.012;
+    }
+
+    calculateLegTargets(idleNoise) {
+        const weightShift = idleNoise.weight * this.idle.weightShift;
+
+        // Weight distribution between legs
+        this.target.leftUpperLegX = weightShift;
+        this.target.leftUpperLegZ = -0.02 + weightShift * 0.3;
+
+        this.target.rightUpperLegX = -weightShift;
+        this.target.rightUpperLegZ = 0.02 - weightShift * 0.3;
+
+        // Lower legs - slight bend
+        this.target.leftLowerLegX = 0.03 + Math.max(0, weightShift) * 0.5;
+        this.target.rightLowerLegX = 0.03 + Math.max(0, -weightShift) * 0.5;
+    }
+
+    // ============================================================
+    // SMOOTH INTERPOLATION
+    // ============================================================
+
+    smoothUpdate(dt) {
+        const a = this.anim;
+        const t = this.target;
+        const tm = this.timing;
+
+        // HEAD - fastest response
+        dampValue(a, 'headX', 'headVelX', t.headX, tm.head, dt);
+        dampValue(a, 'headY', 'headVelY', t.headY, tm.head, dt);
+        dampValue(a, 'headZ', 'headVelZ', t.headZ, tm.head, dt);
+
+        // NECK - slight delay after head
+        dampValue(a, 'neckX', 'neckVelX', t.neckX, tm.neck, dt);
+        dampValue(a, 'neckY', 'neckVelY', t.neckY, tm.neck, dt);
+        dampValue(a, 'neckZ', 'neckVelZ', t.neckZ, tm.neck, dt);
+
+        // HIPS - slowest, center of mass
+        dampValue(a, 'hipsX', 'hipsVelX', t.hipsX, tm.hips, dt);
+        dampValue(a, 'hipsY', 'hipsVelY', t.hipsY, tm.hips, dt);
+        dampValue(a, 'hipsZ', 'hipsVelZ', t.hipsZ, tm.hips, dt);
+
+        // SPINE
+        dampValue(a, 'spineX', 'spineVelX', t.spineX, tm.spine, dt);
+        dampValue(a, 'spineY', 'spineVelY', t.spineY, tm.spine, dt);
+        dampValue(a, 'spineZ', 'spineVelZ', t.spineZ, tm.spine, dt);
+
+        // CHEST
+        dampValue(a, 'chestX', 'chestVelX', t.chestX, tm.spine, dt);
+        dampValue(a, 'chestY', 'chestVelY', t.chestY, tm.spine, dt);
+        dampValue(a, 'chestZ', 'chestVelZ', t.chestZ, tm.spine, dt);
+
+        // UPPER CHEST
+        dampValue(a, 'upperChestX', 'upperChestVelX', t.upperChestX, tm.spine, dt);
+        dampValue(a, 'upperChestY', 'upperChestVelY', t.upperChestY, tm.spine, dt);
+
+        // SHOULDERS
+        dampValue(a, 'leftShoulderZ', 'leftShoulderVelZ', t.leftShoulderZ, tm.shoulders, dt);
+        dampValue(a, 'rightShoulderZ', 'rightShoulderVelZ', t.rightShoulderZ, tm.shoulders, dt);
+
+        // LEFT ARM
+        dampValue(a, 'leftUpperArmX', 'leftUpperArmVelX', t.leftUpperArmX, tm.arms, dt);
+        dampValue(a, 'leftUpperArmY', 'leftUpperArmVelY', t.leftUpperArmY, tm.arms, dt);
+        dampValue(a, 'leftUpperArmZ', 'leftUpperArmVelZ', t.leftUpperArmZ, tm.arms, dt);
+        dampValue(a, 'leftLowerArmX', 'leftLowerArmVelX', t.leftLowerArmX, tm.arms, dt);
+        dampValue(a, 'leftLowerArmY', 'leftLowerArmVelY', t.leftLowerArmY, tm.arms, dt);
+        dampValue(a, 'leftLowerArmZ', 'leftLowerArmVelZ', t.leftLowerArmZ, tm.arms, dt);
+        dampValue(a, 'leftHandX', 'leftHandVelX', t.leftHandX, tm.arms, dt);
+        dampValue(a, 'leftHandY', 'leftHandVelY', t.leftHandY, tm.arms, dt);
+        dampValue(a, 'leftHandZ', 'leftHandVelZ', t.leftHandZ, tm.arms, dt);
+
+        // RIGHT ARM
+        dampValue(a, 'rightUpperArmX', 'rightUpperArmVelX', t.rightUpperArmX, tm.arms, dt);
+        dampValue(a, 'rightUpperArmY', 'rightUpperArmVelY', t.rightUpperArmY, tm.arms, dt);
+        dampValue(a, 'rightUpperArmZ', 'rightUpperArmVelZ', t.rightUpperArmZ, tm.arms, dt);
+        dampValue(a, 'rightLowerArmX', 'rightLowerArmVelX', t.rightLowerArmX, tm.arms, dt);
+        dampValue(a, 'rightLowerArmY', 'rightLowerArmVelY', t.rightLowerArmY, tm.arms, dt);
+        dampValue(a, 'rightLowerArmZ', 'rightLowerArmVelZ', t.rightLowerArmZ, tm.arms, dt);
+        dampValue(a, 'rightHandX', 'rightHandVelX', t.rightHandX, tm.arms, dt);
+        dampValue(a, 'rightHandY', 'rightHandVelY', t.rightHandY, tm.arms, dt);
+        dampValue(a, 'rightHandZ', 'rightHandVelZ', t.rightHandZ, tm.arms, dt);
+
+        // LEGS
+        dampValue(a, 'leftUpperLegX', 'leftUpperLegVelX', t.leftUpperLegX, tm.legs, dt);
+        dampValue(a, 'leftUpperLegZ', 'leftUpperLegVelZ', t.leftUpperLegZ, tm.legs, dt);
+        dampValue(a, 'rightUpperLegX', 'rightUpperLegVelX', t.rightUpperLegX, tm.legs, dt);
+        dampValue(a, 'rightUpperLegZ', 'rightUpperLegVelZ', t.rightUpperLegZ, tm.legs, dt);
+        dampValue(a, 'leftLowerLegX', 'leftLowerLegVelX', t.leftLowerLegX, tm.legs, dt);
+        dampValue(a, 'rightLowerLegX', 'rightLowerLegVelX', t.rightLowerLegX, tm.legs, dt);
+
+        // EYES (faster response)
+        a.leftEyeX = expLerp(a.leftEyeX, t.leftEyeX, 0.05, dt);
+        a.leftEyeY = expLerp(a.leftEyeY, t.leftEyeY, 0.05, dt);
+        a.rightEyeX = expLerp(a.rightEyeX, t.rightEyeX, 0.05, dt);
+        a.rightEyeY = expLerp(a.rightEyeY, t.rightEyeY, 0.05, dt);
+
+        // EXPRESSIONS
+        dampValue(a, 'expressionIntensity', 'expressionVel', this.expression.targetIntensity, tm.expression, dt);
+
+        const talkTarget = this.isTalking ? 1 : 0;
+        dampValue(a, 'talkIntensity', 'talkVel', talkTarget, tm.expression, dt);
+    }
+
+    // ============================================================
+    // APPLY TO BONES
+    // ============================================================
+
+    applyToBones() {
+        const b = this.bones;
+        const a = this.anim;
+
+        // HEAD
+        if (b.head) {
+            b.head.rotation.set(a.headX, a.headY, a.headZ);
+        }
+
+        // NECK
+        if (b.neck) {
+            b.neck.rotation.set(a.neckX, a.neckY, a.neckZ);
+        }
+
+        // HIPS
+        if (b.hips) {
+            b.hips.rotation.set(a.hipsX, a.hipsY, a.hipsZ);
+        }
+
+        // SPINE
+        if (b.spine) {
+            b.spine.rotation.set(a.spineX, a.spineY, a.spineZ);
+        }
+
+        // CHEST
+        if (b.chest) {
+            b.chest.rotation.set(a.chestX, a.chestY, a.chestZ);
+        }
+
+        // UPPER CHEST
+        if (b.upperChest) {
+            b.upperChest.rotation.set(a.upperChestX, a.upperChestY, 0);
+        }
+
+        // SHOULDERS
+        if (b.leftShoulder) {
+            b.leftShoulder.rotation.z = a.leftShoulderZ;
+        }
+        if (b.rightShoulder) {
+            b.rightShoulder.rotation.z = a.rightShoulderZ;
+        }
+
+        // LEFT ARM
+        if (b.leftUpperArm) {
+            b.leftUpperArm.rotation.set(a.leftUpperArmX, a.leftUpperArmY, a.leftUpperArmZ);
+        }
+        if (b.leftLowerArm) {
+            b.leftLowerArm.rotation.set(a.leftLowerArmX, a.leftLowerArmY, a.leftLowerArmZ);
+        }
+        if (b.leftHand) {
+            b.leftHand.rotation.set(a.leftHandX, a.leftHandY, a.leftHandZ);
+        }
+
+        // RIGHT ARM
+        if (b.rightUpperArm) {
+            b.rightUpperArm.rotation.set(a.rightUpperArmX, a.rightUpperArmY, a.rightUpperArmZ);
+        }
+        if (b.rightLowerArm) {
+            b.rightLowerArm.rotation.set(a.rightLowerArmX, a.rightLowerArmY, a.rightLowerArmZ);
+        }
+        if (b.rightHand) {
+            b.rightHand.rotation.set(a.rightHandX, a.rightHandY, a.rightHandZ);
+        }
+
+        // LEGS
+        if (b.leftUpperLeg) {
+            b.leftUpperLeg.rotation.x = a.leftUpperLegX;
+            b.leftUpperLeg.rotation.z = a.leftUpperLegZ;
+        }
+        if (b.rightUpperLeg) {
+            b.rightUpperLeg.rotation.x = a.rightUpperLegX;
+            b.rightUpperLeg.rotation.z = a.rightUpperLegZ;
+        }
+        if (b.leftLowerLeg) {
+            b.leftLowerLeg.rotation.x = a.leftLowerLegX;
+        }
+        if (b.rightLowerLeg) {
+            b.rightLowerLeg.rotation.x = a.rightLowerLegX;
+        }
+
+        // EYES
+        if (b.leftEye) {
+            b.leftEye.rotation.set(a.leftEyeX, a.leftEyeY, 0);
+        }
+        if (b.rightEye) {
+            b.rightEye.rotation.set(a.rightEyeX, a.rightEyeY, 0);
+        }
+
+        // FINGERS
+        this.applyFingerPose();
+    }
+
+    applyFingerPose() {
+        const b = this.bones;
+        const wave = organicNoise(this.idle.phase * 0.4, [1, 0.7], [0, 1.5]) * 0.02;
+
+        // Relaxed finger curl values
+        const curl = {
+            proximal: 0.12,
+            intermediate: 0.18,
+            distal: 0.10
+        };
+
+        // Apply to each finger with slight variation
+        const fingers = ['Index', 'Middle', 'Ring', 'Little'];
+
+        fingers.forEach((finger, i) => {
+            const offset = wave * (1 + i * 0.15);
+
+            // Left hand
+            const lp = b[`left${finger}Proximal`];
+            const li = b[`left${finger}Intermediate`];
+            const ld = b[`left${finger}Distal`];
+
+            if (lp) lp.rotation.z = curl.proximal + offset;
+            if (li) li.rotation.z = curl.intermediate + offset * 0.7;
+            if (ld) ld.rotation.z = curl.distal + offset * 0.4;
+
+            // Right hand (mirrored)
+            const rp = b[`right${finger}Proximal`];
+            const ri = b[`right${finger}Intermediate`];
+            const rd = b[`right${finger}Distal`];
+
+            if (rp) rp.rotation.z = -(curl.proximal + offset);
+            if (ri) ri.rotation.z = -(curl.intermediate + offset * 0.7);
+            if (rd) rd.rotation.z = -(curl.distal + offset * 0.4);
+        });
+
+        // Thumbs (different axis, relaxed position)
+        if (b.leftThumbProximal) b.leftThumbProximal.rotation.z = 0.08;
+        if (b.leftThumbIntermediate) b.leftThumbIntermediate.rotation.z = 0.12;
+        if (b.leftThumbDistal) b.leftThumbDistal.rotation.z = 0.05;
+
+        if (b.rightThumbProximal) b.rightThumbProximal.rotation.z = -0.08;
+        if (b.rightThumbIntermediate) b.rightThumbIntermediate.rotation.z = -0.12;
+        if (b.rightThumbDistal) b.rightThumbDistal.rotation.z = -0.05;
+    }
+
+    // ============================================================
+    // EXPRESSIONS & BLINKING
+    // ============================================================
+
+    updateExpressions(dt) {
+        if (!this.vrmLoader.vrm) return;
+
+        // Reset expressions
+        this.vrmLoader.resetExpressions();
+
+        // Apply current expression
+        const intensity = this.anim.expressionIntensity;
+        switch (this.expression.current) {
+            case 'happy':
+                this.vrmLoader.setHappy(intensity);
+                break;
+            case 'sad':
+                this.vrmLoader.setSad(intensity);
+                break;
+            case 'surprised':
+                this.vrmLoader.setSurprised(intensity);
+                break;
+            case 'angry':
+                this.vrmLoader.setAngry(intensity);
+                break;
+            default:
+                // Subtle smile for neutral
+                this.vrmLoader.setHappy(intensity * 0.15);
+        }
+
+        // Blinking
+        this.updateBlinking(dt);
+
+        // Talking
+        this.updateTalking(dt);
+
+        // Flirty wink
+        if (this.state === 'flirty') {
+            const winkCycle = this.time % 4;
+            if (winkCycle > 0.5 && winkCycle < 1.2) {
+                this.vrmLoader.setWink(true);
+            }
+        }
+    }
+
+    updateBlinking(dt) {
+        const blink = this.blink;
+        blink.timer += dt;
+
+        if (blink.isBlinking) {
+            blink.progress += dt * blink.speed;
+
+            if (blink.progress >= 1) {
+                blink.isBlinking = false;
+                blink.progress = 0;
+                this.anim.blinkValue = 0;
+                this.vrmLoader.setBlink(0);
+            } else {
+                // Asymmetric blink curve - fast close, slower open
+                let value;
+                if (blink.progress < blink.closeRatio) {
+                    // Closing - fast
+                    value = smootherstep(blink.progress / blink.closeRatio);
+                } else {
+                    // Opening - slower
+                    const openProgress = (blink.progress - blink.closeRatio) / (1 - blink.closeRatio);
+                    value = 1 - smootherstep(openProgress);
+                }
+
+                this.anim.blinkValue = value;
+                this.vrmLoader.setBlink(value);
+            }
+        } else if (blink.timer >= blink.interval) {
+            // Start new blink
+            blink.timer = 0;
+            blink.interval = 2.5 + Math.random() * 4; // Vary interval
+            blink.isBlinking = true;
+            blink.progress = 0;
+        } else {
+            // Ensure eyes are fully open
+            if (this.anim.blinkValue > 0.01) {
+                this.anim.blinkValue *= 0.85;
+                this.vrmLoader.setBlink(this.anim.blinkValue);
+            }
+        }
+    }
+
+    updateTalking(dt) {
+        if (!this.isTalking || this.anim.talkIntensity < 0.1) return;
+
+        this.talkTime += dt;
+
+        // Multi-layer speech pattern
+        const t = this.talkTime;
+
+        // Base mouth movement
+        const base = Math.sin(t * 10) * 0.5 + 0.5;
+
+        // Variation layers
+        const mid = Math.sin(t * 6.3) * 0.3;
+        const slow = Math.sin(t * 3.7) * 0.2;
+
+        // Natural pauses
+        const pausePattern = Math.sin(t * 1.8);
+        const pause = pausePattern > 0.2 ? 1 : smoothstep((pausePattern + 1) * 0.5) * 0.3;
+
+        // Combine
+        const mouthOpen = (base * 0.35 + mid * 0.15 + slow * 0.1) * pause * this.anim.talkIntensity;
+
+        this.vrmLoader.setMouthOpen(Math.max(0, Math.min(0.55, mouthOpen)));
+    }
+
     triggerLaugh() {
-        let startTime = performance.now();
-        const duration = 1400;
+        const startTime = performance.now();
+        const duration = 1500;
 
         const animateLaugh = () => {
             const elapsed = performance.now() - startTime;
             const progress = elapsed / duration;
 
             if (progress < 1) {
-                const decay = 1 - progress;
-                const bounce = Math.sin(elapsed * 0.015) * 0.5 + 0.5;
-                const mouthOpen = (bounce * 0.35 + 0.15) * decay;
-                this.vrmLoader.setMouthOpen(mouthOpen);
+                const decay = 1 - smoothstep(progress);
+                const bounce = Math.sin(elapsed * 0.018) * 0.5 + 0.5;
+                const shake = Math.sin(elapsed * 0.025) * 0.15;
+
+                const mouthOpen = (bounce * 0.4 + 0.2 + shake) * decay;
+                this.vrmLoader.setMouthOpen(Math.max(0, mouthOpen));
+
                 requestAnimationFrame(animateLaugh);
             } else {
                 this.vrmLoader.setMouthOpen(0);
