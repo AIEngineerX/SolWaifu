@@ -19,8 +19,12 @@ export class VRMLoader {
 
     init() {
         // Create GLTF loader with VRM plugin
+        // autoUpdateHumanBones: true is CRITICAL - it syncs normalized bones to raw bones
+        // automatically during vrm.update(), enabling procedural animation
         this.loader = new GLTFLoader();
-        this.loader.register((parser) => new VRMLoaderPlugin(parser));
+        this.loader.register((parser) => new VRMLoaderPlugin(parser, {
+            autoUpdateHumanBones: true
+        }));
     }
 
     async load(url, onProgress) {
@@ -44,25 +48,21 @@ export class VRMLoader {
                     // Add to scene
                     this.scene.add(vrm.scene);
 
+                    // Disable frustum culling to prevent rendering issues
+                    vrm.scene.traverse((obj) => {
+                        obj.frustumCulled = false;
+                    });
+
                     // Log available info for debugging
                     this.logDebugInfo();
 
-                    // CRITICAL: Reset normalized pose BEFORE caching bones
-                    // This puts all normalized bones into their T-pose reference state
-                    // where rotation (0,0,0) = T-pose. Without this, normalized bone
-                    // rotations are relative to whatever the model's bind pose was,
-                    // causing unpredictable results.
-                    if (vrm.humanoid) {
-                        vrm.humanoid.resetNormalizedPose();
-                        console.log('Normalized pose reset to T-pose reference');
-                    }
-
                     // Cache bone references - using NORMALIZED bones for animation
-                    // Normalized bones: rotations are relative to T-pose
-                    // vrm.update() automatically syncs these to the raw skeleton
+                    // With autoUpdateHumanBones: true, normalized bone rotations
+                    // are automatically synced to raw bones during vrm.update()
+                    // DO NOT call resetNormalizedPose() - it causes T-pose issues
                     this.cacheBones();
 
-                    // Initial vrm.update() to sync the reset pose
+                    // Initial vrm.update() to initialize the system
                     vrm.update(0);
 
                     resolve(vrm);
@@ -145,18 +145,13 @@ export class VRMLoader {
         ];
 
         boneNames.forEach(name => {
-            // Use getNormalizedBoneNode for animation (three-vrm v2)
-            // After resetNormalizedPose(), these bones are in T-pose reference:
-            // - rotation (0,0,0) = T-pose
-            // - positive Z on leftUpperArm = rotate arm DOWN
-            // - negative Z on rightUpperArm = rotate arm DOWN
-            // vrm.update() syncs these to raw bones automatically
+            // Use getNormalizedBoneNode for animation (three-vrm v2+)
+            // With autoUpdateHumanBones: true, setting rotation on these bones
+            // will automatically sync to raw bones during vrm.update()
             let bone = this.vrm.humanoid.getNormalizedBoneNode(name);
 
             if (bone) {
                 this.boneCache[name] = bone;
-                // Store T-pose reference transforms (after resetNormalizedPose)
-                // These should all be essentially zero rotations
                 this.originalTransforms[name] = {
                     rotation: bone.rotation.clone(),
                     position: bone.position.clone(),
@@ -166,22 +161,6 @@ export class VRMLoader {
         });
 
         console.log('Cached normalized bones:', Object.keys(this.boneCache));
-
-        // Debug: verify arms are at T-pose reference (should be ~0)
-        const leftArm = this.boneCache['leftUpperArm'];
-        const rightArm = this.boneCache['rightUpperArm'];
-        if (leftArm && rightArm) {
-            console.log('T-pose reference - leftUpperArm rotation:', {
-                x: leftArm.rotation.x.toFixed(4),
-                y: leftArm.rotation.y.toFixed(4),
-                z: leftArm.rotation.z.toFixed(4)
-            });
-            console.log('T-pose reference - rightUpperArm rotation:', {
-                x: rightArm.rotation.x.toFixed(4),
-                y: rightArm.rotation.y.toFixed(4),
-                z: rightArm.rotation.z.toFixed(4)
-            });
-        }
     }
 
     // Get expression value (0-1)
