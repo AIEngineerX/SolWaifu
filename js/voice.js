@@ -1,7 +1,9 @@
 /**
  * Voice Controller - Premium Text-to-Speech for Degen Waifu
- * Supports ElevenLabs for natural voice (if API key provided)
- * Falls back to improved Web Speech API
+ * Priority order:
+ * 1. ElevenLabs (if API key provided) - Best quality
+ * 2. Puter.js OpenAI TTS (shimmer voice) - Natural sounding, FREE
+ * 3. Web Speech API - Fallback
  */
 
 export class VoiceController {
@@ -13,20 +15,23 @@ export class VoiceController {
         this.onSpeakEnd = null;
         this.onWordBoundary = null;
 
-        // Audio element for ElevenLabs
+        // Audio element for ElevenLabs and Puter
         this.audio = new Audio();
-        this.audioContext = null;
-        this.analyser = null;
 
         // ElevenLabs settings (user can set API key)
         this.elevenLabsKey = localStorage.getItem('elevenLabsKey') || null;
         this.elevenLabsVoiceId = '2ajXGJNYBR0iNHpS4VZb'; // Sol's custom voice
         this.useElevenLabs = false;
 
-        // Voice settings for Web Speech fallback - slow, sensual and breathy
+        // Puter.js settings - FREE OpenAI TTS
+        this.usePuter = true; // Enable by default
+        this.puterVoice = 'shimmer'; // Natural feminine voice (like Ani)
+        this.puterReady = false;
+
+        // Voice settings for Web Speech fallback
         this.settings = {
-            rate: 0.82,      // Slower for sensual intimate feel
-            pitch: 1.05,     // Soft feminine pitch
+            rate: 0.82,
+            pitch: 1.05,
             volume: 1.0
         };
 
@@ -37,8 +42,13 @@ export class VoiceController {
         // Check for ElevenLabs key
         if (this.elevenLabsKey) {
             this.useElevenLabs = true;
-            console.log('🎤 ElevenLabs voice enabled');
+            console.log('ElevenLabs voice enabled');
         }
+
+        // Check if Puter.js is available (check now and retry after delay)
+        this.checkPuterAvailability();
+        setTimeout(() => this.checkPuterAvailability(), 1000);
+        setTimeout(() => this.checkPuterAvailability(), 3000);
 
         // Setup Web Speech fallback
         if (this.synth.onvoiceschanged !== undefined) {
@@ -63,17 +73,26 @@ export class VoiceController {
         };
     }
 
+    checkPuterAvailability() {
+        if (this.puterReady) return; // Already ready
+
+        if (typeof puter !== 'undefined' && puter.ai) {
+            this.puterReady = true;
+            console.log('Puter.js TTS ready (shimmer voice) - natural AI voice enabled!');
+        }
+    }
+
     selectVoice() {
         const voices = this.synth.getVoices();
 
         // Priority: Natural sounding female voices
         const preferredVoices = [
-            'Microsoft Aria Online',   // Windows 11 neural
-            'Microsoft Jenny',         // Windows 11 neural
-            'Google US English',       // Chrome neural
-            'Samantha',               // macOS
-            'Microsoft Zira',         // Windows
-            'Karen',                  // macOS Australian
+            'Microsoft Aria Online',
+            'Microsoft Jenny',
+            'Google US English',
+            'Samantha',
+            'Microsoft Zira',
+            'Karen',
         ];
 
         for (const preferred of preferredVoices) {
@@ -82,7 +101,7 @@ export class VoiceController {
             );
             if (found) {
                 this.voice = found;
-                console.log('🎤 Selected voice:', found.name);
+                console.log('Web Speech voice:', found.name);
                 return;
             }
         }
@@ -95,10 +114,8 @@ export class VoiceController {
 
         if (englishVoice) {
             this.voice = englishVoice;
-            console.log('🎤 Fallback voice:', englishVoice.name);
         } else if (voices.length > 0) {
             this.voice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-            console.log('🎤 Default voice:', this.voice?.name);
         }
     }
 
@@ -109,11 +126,12 @@ export class VoiceController {
         this.elevenLabsKey = key;
         localStorage.setItem('elevenLabsKey', key);
         this.useElevenLabs = !!key;
-        console.log('🎤 ElevenLabs', key ? 'enabled' : 'disabled');
+        console.log('ElevenLabs', key ? 'enabled' : 'disabled');
     }
 
     /**
      * Speak text with natural voice
+     * Priority: ElevenLabs > Puter.js > Web Speech
      */
     async speak(text, options = {}) {
         // Stop any current speech
@@ -123,13 +141,23 @@ export class VoiceController {
         const cleanText = this.cleanTextForSpeech(text);
         if (!cleanText) return;
 
-        // Try ElevenLabs first if available
+        // Try ElevenLabs first if available (premium)
         if (this.useElevenLabs && this.elevenLabsKey) {
             try {
                 await this.speakWithElevenLabs(cleanText);
                 return;
             } catch (error) {
-                console.warn('ElevenLabs failed, using fallback:', error.message);
+                console.warn('ElevenLabs failed:', error.message);
+            }
+        }
+
+        // Try Puter.js OpenAI TTS (free, natural voice)
+        if (this.usePuter && this.puterReady) {
+            try {
+                await this.speakWithPuter(cleanText);
+                return;
+            } catch (error) {
+                console.warn('Puter TTS failed:', error.message);
             }
         }
 
@@ -138,7 +166,48 @@ export class VoiceController {
     }
 
     /**
-     * Speak using ElevenLabs API (natural voice)
+     * Speak using Puter.js OpenAI TTS (natural voice like Ani)
+     */
+    async speakWithPuter(text) {
+        if (typeof puter === 'undefined' || !puter.ai) {
+            throw new Error('Puter.js not available');
+        }
+
+        this.isSpeaking = true;
+        if (this.onSpeakStart) this.onSpeakStart();
+
+        try {
+            // Use OpenAI TTS through Puter.js (free!)
+            const audio = await puter.ai.txt2speech(text, {
+                voice: this.puterVoice, // 'shimmer' - natural feminine voice
+                model: 'tts-1', // Standard quality (faster)
+                speed: 0.95, // Slightly slower for sensual feel
+                instructions: 'Speak in a warm, friendly, slightly playful and intimate tone. Sound natural and expressive like a real person.'
+            });
+
+            // Play the audio
+            return new Promise((resolve) => {
+                audio.onended = () => {
+                    this.isSpeaking = false;
+                    if (this.onSpeakEnd) this.onSpeakEnd();
+                    resolve();
+                };
+                audio.onerror = () => {
+                    this.isSpeaking = false;
+                    if (this.onSpeakEnd) this.onSpeakEnd();
+                    resolve();
+                };
+                audio.play();
+            });
+        } catch (error) {
+            this.isSpeaking = false;
+            if (this.onSpeakEnd) this.onSpeakEnd();
+            throw error;
+        }
+    }
+
+    /**
+     * Speak using ElevenLabs API (premium natural voice)
      */
     async speakWithElevenLabs(text) {
         const response = await fetch(
@@ -153,11 +222,11 @@ export class VoiceController {
                     text: text,
                     model_id: 'eleven_turbo_v2_5',
                     voice_settings: {
-                        stability: 0.30,          // Lower for breathy, intimate feel
-                        similarity_boost: 0.80,   // Voice clarity
-                        style: 0.75,              // More stylized/sensual delivery
+                        stability: 0.30,
+                        similarity_boost: 0.80,
+                        style: 0.75,
                         use_speaker_boost: true,
-                        speaking_rate: 0.85       // Slower, more deliberate
+                        speaking_rate: 0.85
                     }
                 })
             }
@@ -297,6 +366,22 @@ export class VoiceController {
     }
 
     /**
+     * Set Puter voice (shimmer, alloy, echo, fable, onyx, nova)
+     */
+    setPuterVoice(voice) {
+        this.puterVoice = voice;
+        console.log('Puter voice set to:', voice);
+    }
+
+    /**
+     * Enable/disable Puter TTS
+     */
+    setPuterEnabled(enabled) {
+        this.usePuter = enabled;
+        console.log('Puter TTS', enabled ? 'enabled' : 'disabled');
+    }
+
+    /**
      * Set Web Speech voice by name
      */
     setVoice(voiceName) {
@@ -304,7 +389,7 @@ export class VoiceController {
         const voice = voices.find(v => v.name === voiceName);
         if (voice) {
             this.voice = voice;
-            console.log('🎤 Voice changed to:', voice.name);
+            console.log('Voice changed to:', voice.name);
         }
     }
 
