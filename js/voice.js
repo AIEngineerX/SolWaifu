@@ -1,6 +1,7 @@
 /**
- * Voice Controller - Text-to-Speech for Degen Waifu
- * Uses Web Speech API with anime-style voice settings
+ * Voice Controller - Premium Text-to-Speech for Degen Waifu
+ * Supports ElevenLabs for natural voice (if API key provided)
+ * Falls back to improved Web Speech API
  */
 
 export class VoiceController {
@@ -12,10 +13,20 @@ export class VoiceController {
         this.onSpeakEnd = null;
         this.onWordBoundary = null;
 
-        // Voice settings for anime waifu vibe
+        // Audio element for ElevenLabs
+        this.audio = new Audio();
+        this.audioContext = null;
+        this.analyser = null;
+
+        // ElevenLabs settings (user can set API key)
+        this.elevenLabsKey = localStorage.getItem('elevenLabsKey') || null;
+        this.elevenLabsVoiceId = 'EXAVITQu4vr4xnSDxMaL'; // "Sarah" - natural female voice
+        this.useElevenLabs = false;
+
+        // Voice settings for Web Speech fallback
         this.settings = {
-            rate: 1.05,      // Slightly faster for energy
-            pitch: 1.3,      // Higher pitch for cute voice
+            rate: 1.0,       // Normal speed
+            pitch: 1.15,     // Slightly higher for feminine
             volume: 1.0
         };
 
@@ -23,32 +34,48 @@ export class VoiceController {
     }
 
     init() {
-        // Wait for voices to load
+        // Check for ElevenLabs key
+        if (this.elevenLabsKey) {
+            this.useElevenLabs = true;
+            console.log('🎤 ElevenLabs voice enabled');
+        }
+
+        // Setup Web Speech fallback
         if (this.synth.onvoiceschanged !== undefined) {
             this.synth.onvoiceschanged = () => this.selectVoice();
         }
-
-        // Try to select voice immediately (some browsers)
         setTimeout(() => this.selectVoice(), 100);
+
+        // Setup audio events
+        this.audio.onplay = () => {
+            this.isSpeaking = true;
+            if (this.onSpeakStart) this.onSpeakStart();
+        };
+
+        this.audio.onended = () => {
+            this.isSpeaking = false;
+            if (this.onSpeakEnd) this.onSpeakEnd();
+        };
+
+        this.audio.onerror = () => {
+            this.isSpeaking = false;
+            if (this.onSpeakEnd) this.onSpeakEnd();
+        };
     }
 
     selectVoice() {
         const voices = this.synth.getVoices();
 
-        // Priority list of female/anime-sounding voices
+        // Priority: Natural sounding female voices
         const preferredVoices = [
-            'Microsoft Zira',      // Windows - female
-            'Microsoft Aria',      // Windows 11 - natural female
-            'Samantha',            // macOS - female
-            'Karen',               // macOS - Australian female
-            'Moira',               // macOS - Irish female
-            'Google US English',   // Chrome - clear female
-            'Google UK English Female',
-            'female',              // Generic match
-            'woman'
+            'Microsoft Aria Online',   // Windows 11 neural
+            'Microsoft Jenny',         // Windows 11 neural
+            'Google US English',       // Chrome neural
+            'Samantha',               // macOS
+            'Microsoft Zira',         // Windows
+            'Karen',                  // macOS Australian
         ];
 
-        // Try to find a preferred voice
         for (const preferred of preferredVoices) {
             const found = voices.find(v =>
                 v.name.toLowerCase().includes(preferred.toLowerCase())
@@ -60,51 +87,115 @@ export class VoiceController {
             }
         }
 
-        // Fallback: find any English female voice
+        // Fallback to any English female-sounding voice
         const englishVoice = voices.find(v =>
             v.lang.startsWith('en') &&
-            (v.name.toLowerCase().includes('female') ||
-             v.name.toLowerCase().includes('woman') ||
-             !v.name.toLowerCase().includes('male'))
+            !v.name.toLowerCase().includes('male')
         );
 
         if (englishVoice) {
             this.voice = englishVoice;
-            console.log('🎤 Selected voice:', englishVoice.name);
+            console.log('🎤 Fallback voice:', englishVoice.name);
         } else if (voices.length > 0) {
-            // Last resort: just use the first English voice
             this.voice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-            console.log('🎤 Fallback voice:', this.voice?.name);
+            console.log('🎤 Default voice:', this.voice?.name);
         }
     }
 
     /**
-     * Speak text with callbacks for animation sync
+     * Set ElevenLabs API key
      */
-    speak(text, options = {}) {
-        return new Promise((resolve) => {
-            // Cancel any ongoing speech
-            this.stop();
+    setElevenLabsKey(key) {
+        this.elevenLabsKey = key;
+        localStorage.setItem('elevenLabsKey', key);
+        this.useElevenLabs = !!key;
+        console.log('🎤 ElevenLabs', key ? 'enabled' : 'disabled');
+    }
 
-            // Clean text for speech (remove emojis, special chars)
-            const cleanText = this.cleanTextForSpeech(text);
+    /**
+     * Speak text with natural voice
+     */
+    async speak(text, options = {}) {
+        // Stop any current speech
+        this.stop();
 
-            if (!cleanText) {
-                resolve();
+        // Clean text
+        const cleanText = this.cleanTextForSpeech(text);
+        if (!cleanText) return;
+
+        // Try ElevenLabs first if available
+        if (this.useElevenLabs && this.elevenLabsKey) {
+            try {
+                await this.speakWithElevenLabs(cleanText);
                 return;
+            } catch (error) {
+                console.warn('ElevenLabs failed, using fallback:', error.message);
             }
+        }
 
-            const utterance = new SpeechSynthesisUtterance(cleanText);
+        // Fallback to Web Speech
+        await this.speakWithWebSpeech(cleanText, options);
+    }
 
-            // Apply voice and settings
+    /**
+     * Speak using ElevenLabs API (natural voice)
+     */
+    async speakWithElevenLabs(text) {
+        const response = await fetch(
+            `https://api.elevenlabs.io/v1/text-to-speech/${this.elevenLabsVoiceId}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'xi-api-key': this.elevenLabsKey
+                },
+                body: JSON.stringify({
+                    text: text,
+                    model_id: 'eleven_monolingual_v1',
+                    voice_settings: {
+                        stability: 0.5,
+                        similarity_boost: 0.75,
+                        style: 0.3,
+                        use_speaker_boost: true
+                    }
+                })
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(`ElevenLabs error: ${response.status}`);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        return new Promise((resolve) => {
+            this.audio.src = audioUrl;
+            this.audio.onended = () => {
+                URL.revokeObjectURL(audioUrl);
+                this.isSpeaking = false;
+                if (this.onSpeakEnd) this.onSpeakEnd();
+                resolve();
+            };
+            this.audio.play();
+        });
+    }
+
+    /**
+     * Speak using Web Speech API (fallback)
+     */
+    speakWithWebSpeech(text, options = {}) {
+        return new Promise((resolve) => {
+            const utterance = new SpeechSynthesisUtterance(text);
+
             if (this.voice) {
                 utterance.voice = this.voice;
             }
+
             utterance.rate = options.rate || this.settings.rate;
             utterance.pitch = options.pitch || this.settings.pitch;
             utterance.volume = options.volume || this.settings.volume;
 
-            // Event handlers
             utterance.onstart = () => {
                 this.isSpeaking = true;
                 if (this.onSpeakStart) this.onSpeakStart();
@@ -116,21 +207,18 @@ export class VoiceController {
                 resolve();
             };
 
-            utterance.onerror = (event) => {
-                console.warn('Speech error:', event.error);
+            utterance.onerror = () => {
                 this.isSpeaking = false;
                 if (this.onSpeakEnd) this.onSpeakEnd();
                 resolve();
             };
 
-            // Word boundary for lip sync
             utterance.onboundary = (event) => {
                 if (event.name === 'word' && this.onWordBoundary) {
                     this.onWordBoundary(event);
                 }
             };
 
-            // Speak!
             this.synth.speak(utterance);
         });
     }
@@ -149,10 +237,10 @@ export class VoiceController {
             .replace(/[\u{2700}-\u{27BF}]/gu, '')
             .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
             .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
-            // Convert crypto slang to speakable
+            // Convert degen slang to speakable words
             .replace(/\bgm\b/gi, 'good morning')
-            .replace(/\blfg\b/gi, 'lets fucking go')
-            .replace(/\bwagmi\b/gi, 'we are gonna make it')
+            .replace(/\blfg\b/gi, "let's go")
+            .replace(/\bwagmi\b/gi, "we're all gonna make it")
             .replace(/\bngmi\b/gi, 'not gonna make it')
             .replace(/\bnfa\b/gi, 'not financial advice')
             .replace(/\biykyk\b/gi, 'if you know you know')
@@ -162,13 +250,19 @@ export class VoiceController {
             .replace(/\bwen\b/gi, 'when')
             .replace(/\bdis\b/gi, 'this')
             .replace(/\bfren\b/gi, 'friend')
-            .replace(/\bbullish af\b/gi, 'super bullish')
-            .replace(/\bbearish tbh\b/gi, 'bearish to be honest')
-            // Clean up tildes and special formatting
+            .replace(/\btbh\b/gi, 'to be honest')
+            .replace(/\bngl\b/gi, 'not gonna lie')
+            .replace(/\brn\b/gi, 'right now')
+            .replace(/\bur\b/gi, 'your')
+            .replace(/\bomg\b/gi, 'oh my god')
+            .replace(/\blmao\b/gi, '')
+            .replace(/\blol\b/gi, '')
+            // Clean formatting
             .replace(/~/g, '')
             .replace(/\*+/g, '')
             .replace(/`+/g, '')
-            // Clean extra whitespace
+            .replace(/\.{3,}/g, '...')
+            // Clean whitespace
             .replace(/\s+/g, ' ')
             .trim();
     }
@@ -180,6 +274,10 @@ export class VoiceController {
         if (this.synth.speaking) {
             this.synth.cancel();
         }
+        if (!this.audio.paused) {
+            this.audio.pause();
+            this.audio.currentTime = 0;
+        }
         this.isSpeaking = false;
     }
 
@@ -187,18 +285,18 @@ export class VoiceController {
      * Check if currently speaking
      */
     get speaking() {
-        return this.isSpeaking || this.synth.speaking;
+        return this.isSpeaking || this.synth.speaking || !this.audio.paused;
     }
 
     /**
-     * Get available voices (for settings UI)
+     * Get available Web Speech voices
      */
     getVoices() {
         return this.synth.getVoices().filter(v => v.lang.startsWith('en'));
     }
 
     /**
-     * Set voice by name
+     * Set Web Speech voice by name
      */
     setVoice(voiceName) {
         const voices = this.synth.getVoices();

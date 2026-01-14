@@ -175,8 +175,8 @@ export async function loadMixamoAnimation(url, vrm) {
 }
 
 /**
- * Create a lively procedural idle animation for VRM
- * More movement and personality - like a character waiting and looking around
+ * Create a minimal procedural idle animation for VRM
+ * Only animates legs - arms/head/body are handled by animations.js for smooth control
  */
 export function createProceduralIdleClip(vrm, duration = 8) {
     const tracks = [];
@@ -188,337 +188,26 @@ export function createProceduralIdleClip(vrm, duration = 8) {
         times.push(i / fps);
     }
 
-    // Helper to create values with multiple overlapping waves for organic feel
-    const createOrganicMotion = (baseAmp, freq1, freq2 = 0, freq3 = 0, offset = 0) => {
-        const values = [];
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            let val = Math.sin(t * Math.PI * 2 * freq1 + offset) * baseAmp;
-            if (freq2) val += Math.sin(t * Math.PI * 2 * freq2 + offset * 1.3) * baseAmp * 0.5;
-            if (freq3) val += Math.sin(t * Math.PI * 2 * freq3 + offset * 0.7) * baseAmp * 0.25;
-            values.push(val);
-        }
-        return values;
-    };
+    const euler = new THREE.Euler();
+    const quat = new THREE.Quaternion();
 
-    // Hips - weight shifting side to side (very visible movement)
-    const hipsNode = vrm.humanoid.getNormalizedBoneNode('hips');
-    if (hipsNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
+    // Only animate LEGS here - everything else is handled procedurally in animations.js
+    // This prevents conflicts between mixer animation and procedural overrides
 
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            // Slow weight shift
-            const yRot = Math.sin(t * Math.PI * 2 * 0.15) * 0.06;
-            const zRot = Math.sin(t * Math.PI * 2 * 0.12) * 0.04;
-            // Subtle forward/back
-            const xRot = Math.sin(t * Math.PI * 2 * 0.2) * 0.02;
-
-            euler.set(xRot, yRot, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${hipsNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Spine - follows hips but counter-rotates slightly
-    const spineNode = vrm.humanoid.getNormalizedBoneNode('spine');
-    if (spineNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            // Breathing + counter-rotation
-            const xRot = Math.sin(t * Math.PI * 2 * 0.25) * 0.03; // Breathing
-            const yRot = -Math.sin(t * Math.PI * 2 * 0.15) * 0.03; // Counter hip rotation
-            const zRot = -Math.sin(t * Math.PI * 2 * 0.12) * 0.02;
-
-            euler.set(xRot, yRot, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${spineNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Chest - breathing motion (most visible)
-    const chestNode = vrm.humanoid.getNormalizedBoneNode('chest');
-    if (chestNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            // Pronounced breathing
-            const xRot = Math.sin(t * Math.PI * 2 * 0.25) * 0.04;
-
-            euler.set(xRot, 0, 0);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${chestNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Upper chest
-    const upperChestNode = vrm.humanoid.getNormalizedBoneNode('upperChest');
-    if (upperChestNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const xRot = Math.sin(t * Math.PI * 2 * 0.25 + 0.3) * 0.025;
-
-            euler.set(xRot, 0, 0);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${upperChestNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Neck
-    const neckNode = vrm.humanoid.getNormalizedBoneNode('neck');
-    if (neckNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            // Look around slowly
-            const xRot = Math.sin(t * Math.PI * 2 * 0.18) * 0.03;
-            const yRot = Math.sin(t * Math.PI * 2 * 0.1) * 0.05;
-
-            euler.set(xRot, yRot, 0);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${neckNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Head - looking around with personality
-    const headNode = vrm.humanoid.getNormalizedBoneNode('head');
-    if (headNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            // Look around - multiple frequencies for organic feel
-            const xRot = Math.sin(t * Math.PI * 2 * 0.12) * 0.04 +
-                         Math.sin(t * Math.PI * 2 * 0.31) * 0.02;
-            const yRot = Math.sin(t * Math.PI * 2 * 0.08) * 0.08 +
-                         Math.sin(t * Math.PI * 2 * 0.19) * 0.03;
-            const zRot = Math.sin(t * Math.PI * 2 * 0.14) * 0.02; // Slight tilt
-
-            euler.set(xRot, yRot, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${headNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Left Upper Arm - lowered with sway
-    const leftArmNode = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
-    if (leftArmNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const xRot = 0.15 + Math.sin(t * Math.PI * 2 * 0.2) * 0.03;
-            const yRot = 0.1 + Math.sin(t * Math.PI * 2 * 0.15) * 0.02;
-            const zRot = 1.1 + Math.sin(t * Math.PI * 2 * 0.18) * 0.06; // Arm sway
-
-            euler.set(xRot, yRot, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${leftArmNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Right Upper Arm
-    const rightArmNode = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-    if (rightArmNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const xRot = 0.15 + Math.sin(t * Math.PI * 2 * 0.2 + 0.5) * 0.03;
-            const yRot = -0.1 + Math.sin(t * Math.PI * 2 * 0.15 + 0.5) * 0.02;
-            const zRot = -1.1 + Math.sin(t * Math.PI * 2 * 0.18 + Math.PI) * 0.06;
-
-            euler.set(xRot, yRot, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${rightArmNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Left Lower Arm - bent with movement
-    const leftForearmNode = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
-    if (leftForearmNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const yRot = -0.4 + Math.sin(t * Math.PI * 2 * 0.22) * 0.08;
-
-            euler.set(0, yRot, 0);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${leftForearmNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Right Lower Arm
-    const rightForearmNode = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
-    if (rightForearmNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const yRot = 0.4 + Math.sin(t * Math.PI * 2 * 0.22 + Math.PI) * 0.08;
-
-            euler.set(0, yRot, 0);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${rightForearmNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Left Hand - relaxed with subtle movement
-    const leftHandNode = vrm.humanoid.getNormalizedBoneNode('leftHand');
-    if (leftHandNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const xRot = 0.1 + Math.sin(t * Math.PI * 2 * 0.3) * 0.05;
-            const zRot = Math.sin(t * Math.PI * 2 * 0.25) * 0.04;
-
-            euler.set(xRot, 0, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${leftHandNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Right Hand
-    const rightHandNode = vrm.humanoid.getNormalizedBoneNode('rightHand');
-    if (rightHandNode) {
-        const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
-        for (let i = 0; i <= numFrames; i++) {
-            const t = i / fps;
-            const xRot = 0.1 + Math.sin(t * Math.PI * 2 * 0.3 + 0.5) * 0.05;
-            const zRot = Math.sin(t * Math.PI * 2 * 0.25 + 0.5) * 0.04;
-
-            euler.set(xRot, 0, zRot);
-            quat.setFromEuler(euler);
-            quaternions.push(quat.x, quat.y, quat.z, quat.w);
-        }
-
-        tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${rightHandNode.name}.quaternion`,
-            times,
-            quaternions
-        ));
-    }
-
-    // Left Upper Leg - weight shift
+    // Left Upper Leg - subtle weight shift
     const leftLegNode = vrm.humanoid.getNormalizedBoneNode('leftUpperLeg');
     if (leftLegNode) {
         const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
         for (let i = 0; i <= numFrames; i++) {
             const t = i / fps;
-            const xRot = Math.sin(t * Math.PI * 2 * 0.12) * 0.02;
-            const zRot = -0.02 + Math.sin(t * Math.PI * 2 * 0.12) * 0.015;
-
+            const xRot = Math.sin(t * Math.PI * 2 * 0.12) * 0.015;
+            const zRot = -0.01 + Math.sin(t * Math.PI * 2 * 0.12) * 0.01;
             euler.set(xRot, 0, zRot);
             quat.setFromEuler(euler);
             quaternions.push(quat.x, quat.y, quat.z, quat.w);
         }
-
         tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${leftLegNode.name}.quaternion`,
-            times,
-            quaternions
+            `${leftLegNode.name}.quaternion`, times, quaternions
         ));
     }
 
@@ -526,71 +215,51 @@ export function createProceduralIdleClip(vrm, duration = 8) {
     const rightLegNode = vrm.humanoid.getNormalizedBoneNode('rightUpperLeg');
     if (rightLegNode) {
         const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
         for (let i = 0; i <= numFrames; i++) {
             const t = i / fps;
-            const xRot = Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.02;
-            const zRot = 0.02 + Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.015;
-
+            const xRot = Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.015;
+            const zRot = 0.01 + Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.01;
             euler.set(xRot, 0, zRot);
             quat.setFromEuler(euler);
             quaternions.push(quat.x, quat.y, quat.z, quat.w);
         }
-
         tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${rightLegNode.name}.quaternion`,
-            times,
-            quaternions
+            `${rightLegNode.name}.quaternion`, times, quaternions
         ));
     }
 
-    // Lower legs - slight bend
+    // Left Lower Leg - slight knee bend
     const leftLowerLegNode = vrm.humanoid.getNormalizedBoneNode('leftLowerLeg');
     if (leftLowerLegNode) {
         const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
         for (let i = 0; i <= numFrames; i++) {
             const t = i / fps;
-            const xRot = 0.03 + Math.sin(t * Math.PI * 2 * 0.12) * 0.02;
-
+            const xRot = 0.02 + Math.sin(t * Math.PI * 2 * 0.12) * 0.015;
             euler.set(xRot, 0, 0);
             quat.setFromEuler(euler);
             quaternions.push(quat.x, quat.y, quat.z, quat.w);
         }
-
         tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${leftLowerLegNode.name}.quaternion`,
-            times,
-            quaternions
+            `${leftLowerLegNode.name}.quaternion`, times, quaternions
         ));
     }
 
+    // Right Lower Leg
     const rightLowerLegNode = vrm.humanoid.getNormalizedBoneNode('rightLowerLeg');
     if (rightLowerLegNode) {
         const quaternions = [];
-        const euler = new THREE.Euler();
-        const quat = new THREE.Quaternion();
-
         for (let i = 0; i <= numFrames; i++) {
             const t = i / fps;
-            const xRot = 0.03 + Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.02;
-
+            const xRot = 0.02 + Math.sin(t * Math.PI * 2 * 0.12 + Math.PI) * 0.015;
             euler.set(xRot, 0, 0);
             quat.setFromEuler(euler);
             quaternions.push(quat.x, quat.y, quat.z, quat.w);
         }
-
         tracks.push(new THREE.QuaternionKeyframeTrack(
-            `${rightLowerLegNode.name}.quaternion`,
-            times,
-            quaternions
+            `${rightLowerLegNode.name}.quaternion`, times, quaternions
         ));
     }
 
-    console.log(`Created procedural idle animation: ${tracks.length} bone tracks, ${duration}s loop`);
+    console.log(`Created minimal procedural idle: ${tracks.length} leg tracks, ${duration}s loop`);
     return new THREE.AnimationClip('proceduralIdle', duration, tracks);
 }
