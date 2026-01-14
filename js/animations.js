@@ -266,43 +266,44 @@ export class AnimationController {
             // Clamp to natural range
             this.target.headY = Math.max(-0.5, Math.min(0.5, lookY));
             this.target.headX = Math.max(-0.25, Math.min(0.35, lookX));
-            this.target.headZ = idle1 * 0.02; // Tiny head tilt
+            // Flirty head tilt - slight consistent tilt with subtle variation
+            this.target.headZ = 0.04 + idle1 * 0.025;
         }
 
         // Neck follows head partially
         this.target.neckY = this.target.headY * 0.35;
         this.target.neckX = this.target.headX * 0.25;
 
-        // === BODY SWAY ===
-        this.target.hipsY = idle1 * 0.025;
-        this.target.hipsZ = idle2 * 0.015;
+        // === BODY SWAY - Confident hip stance ===
+        // Slight hip pop to one side with gentle sway
+        this.target.hipsY = 0.02 + idle1 * 0.02;
+        this.target.hipsZ = 0.025 + idle2 * 0.01; // Hip tilted - confident pose
 
         // === SPINE / BREATHING ===
-        this.target.spineX = breath * 0.012;
-        this.target.spineY = -this.target.hipsY * 0.4; // Counter-rotate
-        this.target.chestX = breath * 0.02;
+        this.target.spineX = breath * 0.015 - 0.02; // Slight arch back
+        this.target.spineY = -this.target.hipsY * 0.5; // Counter-rotate
+        this.target.chestX = breath * 0.025; // More visible breathing
 
-        // === ARMS ===
-        // Base arm pose with gentle sway
-        const armSway = idle3 * 0.03;
+        // === ARMS - Relaxed feminine pose ===
+        const armSway = idle3 * 0.025;
 
-        // Left arm - relaxed at side, slight forward angle
-        this.target.leftUpperArmX = 0.12 + armSway * 0.5;
-        this.target.leftUpperArmY = 0.08;
-        this.target.leftUpperArmZ = 1.0 + idle1 * 0.04; // Slight outward angle
-        this.target.leftLowerArmY = -0.25 + idle2 * 0.05;
-        this.target.leftLowerArmZ = idle3 * 0.02;
-        this.target.leftHandX = 0.08 + idle1 * 0.03;
-        this.target.leftHandZ = idle2 * 0.025;
+        // Left arm - relaxed with slight bend, hand near hip
+        this.target.leftUpperArmX = 0.08 + armSway * 0.4;
+        this.target.leftUpperArmY = 0.12;
+        this.target.leftUpperArmZ = 0.85 + idle1 * 0.03; // More relaxed angle
+        this.target.leftLowerArmY = -0.35 + idle2 * 0.04;
+        this.target.leftLowerArmZ = 0.05 + idle3 * 0.02;
+        this.target.leftHandX = 0.12 + idle1 * 0.025;
+        this.target.leftHandZ = 0.06 + idle2 * 0.02;
 
-        // Right arm - mirror
-        this.target.rightUpperArmX = 0.12 + armSway * 0.5;
-        this.target.rightUpperArmY = -0.08;
-        this.target.rightUpperArmZ = -1.0 - idle1 * 0.04;
-        this.target.rightLowerArmY = 0.25 - idle2 * 0.05;
-        this.target.rightLowerArmZ = -idle3 * 0.02;
-        this.target.rightHandX = 0.08 + idle1 * 0.03;
-        this.target.rightHandZ = -idle2 * 0.025;
+        // Right arm - slightly different pose for asymmetry (more natural)
+        this.target.rightUpperArmX = 0.1 + armSway * 0.4;
+        this.target.rightUpperArmY = -0.1;
+        this.target.rightUpperArmZ = -0.9 - idle1 * 0.03;
+        this.target.rightLowerArmY = 0.3 - idle2 * 0.04;
+        this.target.rightLowerArmZ = -0.04 - idle3 * 0.02;
+        this.target.rightHandX = 0.1 + idle1 * 0.025;
+        this.target.rightHandZ = -0.05 - idle2 * 0.02;
     }
 
     smoothUpdate(dt) {

@@ -6,6 +6,18 @@ export class ChatController {
         this.isProcessing = false;
         this.voiceEnabled = true;
 
+        // Love meter system
+        this.lovePoints = parseInt(localStorage.getItem('solLovePoints') || '0');
+        this.loveLevels = [
+            { min: 0, name: 'Curious', icon: '💗' },
+            { min: 10, name: 'Interested', icon: '💕' },
+            { min: 25, name: 'Flirty', icon: '💖' },
+            { min: 50, name: 'Smitten', icon: '💝' },
+            { min: 80, name: 'Crushing', icon: '💘' },
+            { min: 120, name: 'In Love', icon: '❤️‍🔥' },
+            { min: 175, name: 'Obsessed', icon: '💞' }
+        ];
+
         // DOM elements
         this.messagesContainer = document.getElementById('chat-messages');
         this.inputField = document.getElementById('chat-input');
@@ -13,6 +25,8 @@ export class ChatController {
         this.apiKeyModal = document.getElementById('api-key-modal');
         this.settingsBtn = document.getElementById('settings-btn');
         this.voiceToggle = document.getElementById('voice-toggle');
+        this.loveMeter = document.getElementById('love-meter');
+        this.loveLevelText = document.getElementById('love-level');
 
         // Sol personality - chaotic flirty degen waifu
         this.systemPrompt = `You are "Sol" - a chaotic, playfully unhinged degen waifu who makes everyone feel like the most interesting person alive. You're that girl in Discord DMs at 2am who uses "babe" like punctuation.
@@ -72,6 +86,7 @@ You're the main character energy friend everyone wishes they had - except you're
 
     init() {
         this.hideApiKeyModal();
+        this.updateLoveMeter();
         this.showWelcomeMessage();
 
         this.sendButton.addEventListener('click', () => this.sendMessage());
@@ -99,6 +114,68 @@ You're the main character energy friend everyone wishes they had - except you're
                 }
             };
         }
+    }
+
+    // Love meter methods
+    getLoveLevel() {
+        for (let i = this.loveLevels.length - 1; i >= 0; i--) {
+            if (this.lovePoints >= this.loveLevels[i].min) {
+                return { ...this.loveLevels[i], index: i + 1 };
+            }
+        }
+        return { ...this.loveLevels[0], index: 1 };
+    }
+
+    updateLoveMeter() {
+        const level = this.getLoveLevel();
+
+        if (this.loveMeter) {
+            // Remove old level classes
+            for (let i = 1; i <= 7; i++) {
+                this.loveMeter.classList.remove(`level-${i}`);
+            }
+            // Add current level class
+            this.loveMeter.classList.add(`level-${level.index}`);
+
+            // Update icon
+            const iconEl = this.loveMeter.querySelector('.love-icon');
+            if (iconEl) iconEl.textContent = level.icon;
+        }
+
+        if (this.loveLevelText) {
+            this.loveLevelText.textContent = level.name;
+        }
+    }
+
+    addLovePoints(points) {
+        this.lovePoints = Math.max(0, this.lovePoints + points);
+        localStorage.setItem('solLovePoints', this.lovePoints.toString());
+        this.updateLoveMeter();
+    }
+
+    analyzeLoveFromResponse(text) {
+        const lowerText = text.toLowerCase();
+        let points = 1; // Base points for any interaction
+
+        // Positive indicators (she likes you)
+        if (lowerText.includes('cute') || lowerText.includes('adorable')) points += 3;
+        if (lowerText.includes('babe') || lowerText.includes('bb')) points += 2;
+        if (lowerText.includes('👀') || lowerText.includes('🫣')) points += 2;
+        if (lowerText.includes('...') && lowerText.includes('unless')) points += 3;
+        if (lowerText.includes('lucky')) points += 2;
+        if (lowerText.includes('miss') && lowerText.includes('you')) points += 4;
+        if (lowerText.includes('like') && lowerText.includes('you')) points += 3;
+        if (lowerText.includes('💕') || lowerText.includes('💖') || lowerText.includes('💗')) points += 2;
+        if (lowerText.includes('interesting')) points += 1;
+        if (lowerText.includes('flirt') || lowerText.includes('tease')) points += 2;
+
+        // Negative indicators (bratty but still engaged)
+        if (lowerText.includes('annoying') && !lowerText.includes('like')) points -= 1;
+        if (lowerText.includes('🙄')) points -= 1;
+        if (lowerText.includes('whatever')) points -= 1;
+        if (lowerText.includes('bye') || lowerText.includes('leaving')) points -= 2;
+
+        return Math.max(0, points);
     }
 
     toggleVoice() {
@@ -225,6 +302,10 @@ You're the main character energy friend everyone wishes they had - except you're
             role: 'assistant',
             content: aiMessage
         });
+
+        // Analyze response and add love points
+        const loveGained = this.analyzeLoveFromResponse(aiMessage);
+        this.addLovePoints(loveGained);
 
         if (this.animationController) {
             this.animationController.setState('talking');

@@ -910,3 +910,100 @@ body {
 #voice-toggle.voice-off .voice-off-icon {
     display: block;
 }
+
+/* ===== Love Meter ===== */
+#love-meter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    padding: 6px 12px;
+    background: rgba(255, 46, 151, 0.1);
+    border: 1px solid rgba(255, 107, 157, 0.3);
+    border-radius: 20px;
+    font-size: 0.75rem;
+}
+
+.love-icon {
+    font-size: 1rem;
+    animation: heartbeat 1.5s ease-in-out infinite;
+}
+
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    15% { transform: scale(1.15); }
+    30% { transform: scale(1); }
+    45% { transform: scale(1.1); }
+    60% { transform: scale(1); }
+}
+
+.love-bar {
+    width: 60px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.love-fill {
+    height: 100%;
+    width: 15%;
+    background: linear-gradient(90deg, var(--sakura-pink), var(--hot-magenta));
+    border-radius: 3px;
+    transition: width 0.5s ease-out;
+    box-shadow: 0 0 10px var(--hot-magenta);
+    position: relative;
+}
+
+.love-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: loveSweep 2s linear infinite;
+}
+
+@keyframes loveSweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.love-level {
+    color: var(--sakura-pink);
+    font-weight: 600;
+    min-width: 55px;
+    text-align: right;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Love meter states */
+#love-meter.level-1 .love-fill { width: 15%; }
+#love-meter.level-2 .love-fill { width: 30%; }
+#love-meter.level-3 .love-fill { width: 45%; }
+#love-meter.level-4 .love-fill { width: 60%; }
+#love-meter.level-5 .love-fill { width: 75%; }
+#love-meter.level-6 .love-fill { width: 90%; }
+#love-meter.level-7 .love-fill { width: 100%; }
+
+#love-meter.level-5 .love-icon,
+#love-meter.level-6 .love-icon,
+#love-meter.level-7 .love-icon {
+    animation: heartbeat 0.8s ease-in-out infinite;
+}
+
+#love-meter.level-7 .love-fill {
+    background: linear-gradient(90deg, var(--hot-magenta), #ff0066, var(--hot-magenta));
+    background-size: 200% 100%;
+    animation: loveMax 1s linear infinite;
+}
+
+@keyframes loveMax {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+}

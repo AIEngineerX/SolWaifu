@@ -23,10 +23,10 @@ export class VoiceController {
         this.elevenLabsVoiceId = '2ajXGJNYBR0iNHpS4VZb'; // Sol's custom voice
         this.useElevenLabs = false;
 
-        // Voice settings for Web Speech fallback
+        // Voice settings for Web Speech fallback - sensual and breathy
         this.settings = {
-            rate: 1.0,       // Normal speed
-            pitch: 1.15,     // Slightly higher for feminine
+            rate: 0.92,      // Slightly slower for intimate feel
+            pitch: 1.1,      // Soft feminine pitch
             volume: 1.0
         };
 
@@ -151,11 +151,11 @@ export class VoiceController {
                 },
                 body: JSON.stringify({
                     text: text,
-                    model_id: 'eleven_monolingual_v1',
+                    model_id: 'eleven_turbo_v2_5',
                     voice_settings: {
-                        stability: 0.5,
-                        similarity_boost: 0.75,
-                        style: 0.3,
+                        stability: 0.35,          // Lower for more expressive/breathy
+                        similarity_boost: 0.85,   // Higher voice clarity
+                        style: 0.65,              // More stylized/sensual delivery
                         use_speaker_boost: true
                     }
                 })
