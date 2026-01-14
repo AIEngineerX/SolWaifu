@@ -29,17 +29,13 @@ export class VRMLoader {
                         return;
                     }
 
-                    // Apply official optimizations
-                    VRMUtils.removeUnnecessaryVertices(gltf.scene);
-                    VRMUtils.combineSkeletons(gltf.scene);
+                    // Rotate VRM0 models to face camera (do this first)
+                    VRMUtils.rotateVRM0(vrm);
 
                     // Disable frustum culling
                     vrm.scene.traverse((obj) => {
                         obj.frustumCulled = false;
                     });
-
-                    // Rotate VRM0 models to face camera
-                    VRMUtils.rotateVRM0(vrm);
 
                     // Store and add to scene
                     this.vrm = vrm;
