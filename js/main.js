@@ -81,6 +81,10 @@ class DegenWaifuApp {
         this.voiceController = null;
         this.isRunning = false;
 
+        // Mouse tracking for look-at
+        this.mouseX = 0;
+        this.mouseY = 0;
+
         this.init();
     }
 
@@ -120,11 +124,32 @@ class DegenWaifuApp {
         // Try to load VRM model
         await this.loadModel();
 
+        // Setup mouse tracking for look-at
+        this.setupMouseTracking();
+
         // Start render loop
         this.isRunning = true;
         this.animate();
 
         console.log('🚀 Sol is ready! wagmi~');
+    }
+
+    setupMouseTracking() {
+        // Track mouse position for character to look at
+        document.addEventListener('mousemove', (e) => {
+            // Convert mouse position to normalized coordinates (-1 to 1)
+            this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+            this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // Also track touch for mobile
+        document.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) {
+                const touch = e.touches[0];
+                this.mouseX = (touch.clientX / window.innerWidth) * 2 - 1;
+                this.mouseY = -(touch.clientY / window.innerHeight) * 2 + 1;
+            }
+        });
     }
 
     async loadModel() {
@@ -228,6 +253,15 @@ class DegenWaifuApp {
 
         // Update scene (controls, particles)
         this.scene.update(deltaTime);
+
+        // Update look-at target based on mouse position
+        // Convert 2D mouse to 3D world position in front of character
+        if (this.animationController) {
+            const lookX = this.mouseX * 1.5; // Scale for natural range
+            const lookY = 1.4 + this.mouseY * 0.5; // Center at head height
+            const lookZ = 2; // Distance in front
+            this.animationController.setLookAtTarget(lookX, lookY, lookZ);
+        }
 
         // 1. Update animations FIRST (includes AnimationMixer + procedural layers)
         this.animationController.update(deltaTime, elapsedTime);
