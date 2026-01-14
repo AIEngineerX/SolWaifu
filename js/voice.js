@@ -20,7 +20,7 @@ export class VoiceController {
 
         // ElevenLabs settings (user can set API key)
         this.elevenLabsKey = localStorage.getItem('elevenLabsKey') || null;
-        this.elevenLabsVoiceId = 'EXAVITQu4vr4xnSDxMaL'; // "Sarah" - natural female voice
+        this.elevenLabsVoiceId = '2ajXGJNYBR0iNHpS4VZb'; // Sol's custom voice
         this.useElevenLabs = false;
 
         // Voice settings for Web Speech fallback

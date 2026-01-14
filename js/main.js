@@ -263,10 +263,10 @@ class DegenWaifuApp {
             this.animationController.setLookAtTarget(lookX, lookY, lookZ);
         }
 
-        // 1. Update animations FIRST (includes AnimationMixer + procedural layers)
+        // 1. Update animations (pure procedural - no mixer conflicts)
         this.animationController.update(deltaTime, elapsedTime);
 
-        // 2. Update VRM AFTER animations - syncs bones + SpringBone physics
+        // 2. Update VRM - syncs bones + SpringBone physics
         this.vrmLoader.update(deltaTime);
 
         // 3. Render
