@@ -1,6 +1,6 @@
 /**
  * VRM Loader with VRMA Animation Support
- * Uses official @pixiv/three-vrm-animation for reliable animation playback
+ * Based on official three-vrm examples and VRoid Hub implementation
  */
 
 import * as THREE from 'three';
@@ -14,6 +14,7 @@ export class VRMLoader {
         this.vrm = null;
         this.mixer = null;
         this.currentAction = null;
+        this.clock = new THREE.Clock();
 
         // Setup loader with both VRM and VRMA plugins
         this.loader = new GLTFLoader();
@@ -27,94 +28,107 @@ export class VRMLoader {
             this.loader.load(
                 url,
                 async (gltf) => {
-                    const vrm = gltf.userData.vrm;
-                    if (!vrm) {
-                        reject(new Error('No VRM data found'));
-                        return;
-                    }
-
-                    // Rotate VRM0 models to face camera
-                    VRMUtils.rotateVRM0(vrm);
-
-                    // Disable frustum culling
-                    vrm.scene.traverse((obj) => {
-                        obj.frustumCulled = false;
-                    });
-
-                    // Store and add to scene
-                    this.vrm = vrm;
-                    this.scene.add(vrm.scene);
-
-                    // Create animation mixer
-                    this.mixer = new THREE.AnimationMixer(vrm.scene);
-
-                    console.log('VRM loaded successfully');
-
-                    // Load idle animation
                     try {
-                        await this.loadAnimation('./animations/idle.vrma');
-                        console.log('Idle animation loaded and playing');
-                    } catch (e) {
-                        console.warn('Could not load idle animation:', e.message);
-                    }
+                        const vrm = gltf.userData.vrm;
+                        if (!vrm) {
+                            reject(new Error('No VRM data found'));
+                            return;
+                        }
 
-                    resolve(vrm);
+                        // Rotate VRM0 models to face camera
+                        VRMUtils.rotateVRM0(vrm);
+
+                        // Disable frustum culling on all objects
+                        vrm.scene.traverse((obj) => {
+                            obj.frustumCulled = false;
+                        });
+
+                        // Store and add to scene
+                        this.vrm = vrm;
+                        this.scene.add(vrm.scene);
+
+                        // Create animation mixer for the VRM scene
+                        this.mixer = new THREE.AnimationMixer(vrm.scene);
+
+                        console.log('VRM loaded successfully');
+                        console.log('Humanoid:', vrm.humanoid ? 'Yes' : 'No');
+                        console.log('ExpressionManager:', vrm.expressionManager ? 'Yes' : 'No');
+
+                        // Try to load idle animation
+                        try {
+                            await this.loadAnimation('./animations/idle.vrma');
+                            console.log('VRMA idle animation loaded and playing');
+                        } catch (e) {
+                            console.warn('Could not load VRMA animation:', e.message);
+                            console.log('Model will display in default pose');
+                        }
+
+                        resolve(vrm);
+                    } catch (e) {
+                        reject(e);
+                    }
                 },
                 (progress) => {
                     if (onProgress && progress.total) {
                         onProgress((progress.loaded / progress.total) * 100);
                     }
                 },
-                reject
+                (error) => {
+                    console.error('Failed to load VRM:', error);
+                    reject(error);
+                }
             );
         });
     }
 
     async loadAnimation(url) {
         return new Promise((resolve, reject) => {
+            console.log('Loading animation from:', url);
+
             this.loader.load(
                 url,
                 (gltf) => {
-                    const vrmAnimations = gltf.userData.vrmAnimations;
-                    if (!vrmAnimations || vrmAnimations.length === 0) {
-                        reject(new Error('No VRM animations found in file'));
-                        return;
+                    try {
+                        const vrmAnimations = gltf.userData.vrmAnimations;
+
+                        if (!vrmAnimations || vrmAnimations.length === 0) {
+                            reject(new Error('No VRM animations found in file'));
+                            return;
+                        }
+
+                        console.log('VRMA file loaded, creating clip...');
+
+                        // Create animation clip from VRMA
+                        const clip = createVRMAnimationClip(vrmAnimations[0], this.vrm);
+
+                        console.log('Animation clip created:', clip.name, 'Duration:', clip.duration);
+
+                        // Stop any existing animation
+                        if (this.currentAction) {
+                            this.currentAction.stop();
+                        }
+
+                        // Create and play the action
+                        const action = this.mixer.clipAction(clip);
+                        action.setLoop(THREE.LoopRepeat);
+                        action.play();
+
+                        this.currentAction = action;
+                        console.log('Animation now playing');
+
+                        resolve(clip);
+                    } catch (e) {
+                        console.error('Error creating animation clip:', e);
+                        reject(e);
                     }
-
-                    // Create animation clip from VRMA
-                    const clip = createVRMAnimationClip(vrmAnimations[0], this.vrm);
-
-                    // Play the animation
-                    const action = this.mixer.clipAction(clip);
-                    action.play();
-
-                    this.currentAction = action;
-                    console.log('Animation playing:', clip.name);
-
-                    resolve(clip);
                 },
                 undefined,
-                reject
+                (error) => {
+                    console.error('Failed to load animation file:', error);
+                    reject(error);
+                }
             );
         });
-    }
-
-    // Crossfade to a new animation
-    async crossfadeTo(url, duration = 0.5) {
-        const oldAction = this.currentAction;
-
-        try {
-            await this.loadAnimation(url);
-
-            if (oldAction) {
-                oldAction.fadeOut(duration);
-            }
-            if (this.currentAction) {
-                this.currentAction.reset().fadeIn(duration).play();
-            }
-        } catch (e) {
-            console.error('Failed to crossfade animation:', e);
-        }
     }
 
     // Expression methods
@@ -148,15 +162,16 @@ export class VRMLoader {
         this.setExpression('blinkRight', isLeft ? 0 : 1);
     }
 
-    // Update VRM and mixer each frame - ORDER MATTERS!
+    // Update VRM and mixer each frame
+    // Order: mixer first, then VRM (for springbone physics to react to animation)
     update(deltaTime) {
-        // 1. Update VRM (physics/spring bones)
-        if (this.vrm) {
-            this.vrm.update(deltaTime);
-        }
-        // 2. Update animation mixer AFTER VRM
+        // 1. Update animation mixer first
         if (this.mixer) {
             this.mixer.update(deltaTime);
+        }
+        // 2. Update VRM (physics/springbones react to animation)
+        if (this.vrm) {
+            this.vrm.update(deltaTime);
         }
     }
 
