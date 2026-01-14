@@ -55,20 +55,21 @@ export class AnimationController {
             neckX: 0, neckY: 0,
             neckVelX: 0, neckVelY: 0,
             // Body sway
-            hipsY: 0, hipsZ: 0,
-            hipsVelY: 0, hipsVelZ: 0,
+            hipsX: 0, hipsY: 0, hipsZ: 0,
+            hipsVelX: 0, hipsVelY: 0, hipsVelZ: 0,
             // Spine
-            spineX: 0, spineY: 0,
+            spineX: 0, spineY: 0, spineZ: 0,
             // Chest breathing
-            chestX: 0,
-            // Arms - left
-            leftUpperArmX: 0.15, leftUpperArmY: 0.1, leftUpperArmZ: 1.05,
-            leftLowerArmY: -0.3, leftLowerArmZ: 0,
-            leftHandX: 0.1, leftHandZ: 0,
+            chestX: 0, chestY: 0,
+            upperChestX: 0,
+            // Arms - left (natural hanging position)
+            leftUpperArmX: 0.05, leftUpperArmY: 0.05, leftUpperArmZ: 0.15,
+            leftLowerArmY: -0.15, leftLowerArmZ: 0.02,
+            leftHandX: -0.05, leftHandZ: 0.03,
             // Arms - right
-            rightUpperArmX: 0.15, rightUpperArmY: -0.1, rightUpperArmZ: -1.05,
-            rightLowerArmY: 0.3, rightLowerArmZ: 0,
-            rightHandX: 0.1, rightHandZ: 0,
+            rightUpperArmX: 0.06, rightUpperArmY: -0.04, rightUpperArmZ: -0.12,
+            rightLowerArmY: 0.12, rightLowerArmZ: -0.02,
+            rightHandX: -0.05, rightHandZ: -0.03,
             // Expression
             expressionIntensity: 0.25,
             talkIntensity: 0,
@@ -274,36 +275,40 @@ export class AnimationController {
         this.target.neckY = this.target.headY * 0.35;
         this.target.neckX = this.target.headX * 0.25;
 
-        // === BODY SWAY - Confident hip stance ===
-        // Slight hip pop to one side with gentle sway
-        this.target.hipsY = 0.02 + idle1 * 0.02;
-        this.target.hipsZ = 0.025 + idle2 * 0.01; // Hip tilted - confident pose
+        // === BODY SWAY - Flowing natural movement ===
+        // More movement in hips for feminine sway
+        this.target.hipsY = idle1 * 0.04 + idle2 * 0.02;
+        this.target.hipsZ = 0.02 + idle2 * 0.025; // Hip tilt with sway
+        this.target.hipsX = idle3 * 0.015; // Forward/back hip movement
 
-        // === SPINE / BREATHING ===
-        this.target.spineX = breath * 0.015 - 0.02; // Slight arch back
-        this.target.spineY = -this.target.hipsY * 0.5; // Counter-rotate
-        this.target.chestX = breath * 0.025; // More visible breathing
+        // === SPINE / BREATHING - More flowing ===
+        this.target.spineX = breath * 0.02 + idle1 * 0.01;
+        this.target.spineY = -this.target.hipsY * 0.6; // Counter-rotate spine
+        this.target.spineZ = idle2 * 0.015; // Side bend
+        this.target.chestX = breath * 0.03 + idle3 * 0.008;
+        this.target.chestY = idle1 * 0.02; // Chest twist
+        this.target.upperChestX = breath * 0.015;
 
-        // === ARMS - Relaxed feminine pose ===
-        const armSway = idle3 * 0.025;
+        // === ARMS - Natural hanging, close to body ===
+        const armSway = idle3 * 0.02;
 
-        // Left arm - relaxed with slight bend, hand near hip
-        this.target.leftUpperArmX = 0.08 + armSway * 0.4;
-        this.target.leftUpperArmY = 0.12;
-        this.target.leftUpperArmZ = 0.85 + idle1 * 0.03; // More relaxed angle
-        this.target.leftLowerArmY = -0.35 + idle2 * 0.04;
-        this.target.leftLowerArmZ = 0.05 + idle3 * 0.02;
-        this.target.leftHandX = 0.12 + idle1 * 0.025;
-        this.target.leftHandZ = 0.06 + idle2 * 0.02;
+        // Left arm - hanging naturally at side
+        this.target.leftUpperArmX = 0.05 + idle1 * 0.03; // Slight forward
+        this.target.leftUpperArmY = 0.05 + idle2 * 0.02; // Minimal rotation
+        this.target.leftUpperArmZ = 0.15 + idle1 * 0.04 + armSway; // Close to body!
+        this.target.leftLowerArmY = -0.15 + idle2 * 0.08; // Natural bend
+        this.target.leftLowerArmZ = 0.02 + idle3 * 0.03;
+        this.target.leftHandX = -0.05 + idle1 * 0.04; // Relaxed wrist
+        this.target.leftHandZ = 0.03 + idle2 * 0.02;
 
-        // Right arm - slightly different pose for asymmetry (more natural)
-        this.target.rightUpperArmX = 0.1 + armSway * 0.4;
-        this.target.rightUpperArmY = -0.1;
-        this.target.rightUpperArmZ = -0.9 - idle1 * 0.03;
-        this.target.rightLowerArmY = 0.3 - idle2 * 0.04;
-        this.target.rightLowerArmZ = -0.04 - idle3 * 0.02;
-        this.target.rightHandX = 0.1 + idle1 * 0.025;
-        this.target.rightHandZ = -0.05 - idle2 * 0.02;
+        // Right arm - slightly different for asymmetry
+        this.target.rightUpperArmX = 0.06 + idle1 * 0.025;
+        this.target.rightUpperArmY = -0.04 + idle2 * 0.02;
+        this.target.rightUpperArmZ = -0.12 - idle1 * 0.04 - armSway; // Close to body!
+        this.target.rightLowerArmY = 0.12 - idle2 * 0.08;
+        this.target.rightLowerArmZ = -0.02 - idle3 * 0.03;
+        this.target.rightHandX = -0.05 + idle1 * 0.04;
+        this.target.rightHandZ = -0.03 - idle2 * 0.02;
     }
 
     smoothUpdate(dt) {
@@ -330,6 +335,9 @@ export class AnimationController {
         c.neckY = result.value; c.neckVelY = result.velocity;
 
         // Body - extra smooth
+        result = smoothDamp(c.hipsX, t.hipsX, c.hipsVelX, st.body, dt);
+        c.hipsX = result.value; c.hipsVelX = result.velocity;
+
         result = smoothDamp(c.hipsY, t.hipsY, c.hipsVelY, st.body, dt);
         c.hipsY = result.value; c.hipsVelY = result.velocity;
 
@@ -337,10 +345,13 @@ export class AnimationController {
         c.hipsZ = result.value; c.hipsVelZ = result.velocity;
 
         // Spine/chest - direct smooth (no velocity needed, slow movement)
-        const bodyFactor = 1 - Math.pow(0.05, dt);
+        const bodyFactor = 1 - Math.pow(0.03, dt); // Slower for more fluid movement
         c.spineX += (t.spineX - c.spineX) * bodyFactor;
         c.spineY += (t.spineY - c.spineY) * bodyFactor;
+        c.spineZ += (t.spineZ - c.spineZ) * bodyFactor;
         c.chestX += (t.chestX - c.chestX) * bodyFactor;
+        c.chestY += (t.chestY - c.chestY) * bodyFactor;
+        c.upperChestX += (t.upperChestX - c.upperChestX) * bodyFactor;
 
         // Arms - smooth interpolation
         const armFactor = 1 - Math.pow(0.08, dt);
@@ -383,26 +394,29 @@ export class AnimationController {
             b.neck.rotation.y = c.neckY;
         }
 
-        // Hips
+        // Hips - full flowing movement
         if (b.hips) {
+            b.hips.rotation.x = c.hipsX;
             b.hips.rotation.y = c.hipsY;
             b.hips.rotation.z = c.hipsZ;
         }
 
-        // Spine
+        // Spine - flowing counter-rotation
         if (b.spine) {
             b.spine.rotation.x = c.spineX;
             b.spine.rotation.y = c.spineY;
+            b.spine.rotation.z = c.spineZ;
         }
 
-        // Chest
+        // Chest - breathing and twist
         if (b.chest) {
             b.chest.rotation.x = c.chestX;
+            b.chest.rotation.y = c.chestY;
         }
 
         // Upper chest
         if (b.upperChest) {
-            b.upperChest.rotation.x = c.chestX * 0.5;
+            b.upperChest.rotation.x = c.upperChestX;
         }
 
         // Left arm
