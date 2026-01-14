@@ -171,8 +171,19 @@ export class AnimationController {
             rightLittleDistal: vrm.humanoid.getNormalizedBoneNode('rightLittleDistal')
         };
 
+        // Verify we got the essential bones
+        if (!this.bones.hips || !this.bones.leftUpperArm || !this.bones.rightUpperArm) {
+            console.warn('Essential bones not found - model may not be fully loaded');
+            return; // Don't mark initialized if bones aren't ready
+        }
+
         console.log('Ultra-smooth animation system initialized');
         this.initialized = true;
+
+        // IMMEDIATELY apply initial pose to prevent T-pose flash
+        // Copy current values to target to avoid animation jumps
+        this.target = { ...this.current };
+        this.applyToBones();
     }
 
     setLookAtTarget(x, y, z) {
@@ -221,7 +232,9 @@ export class AnimationController {
 
         if (!this.initialized) {
             this.initialize();
-            return;
+            // Don't return - continue to apply animation this frame
+            // to prevent T-pose flicker during initialization
+            if (!this.initialized) return; // Only return if init truly failed
         }
 
         // Clamp delta to prevent jumps
