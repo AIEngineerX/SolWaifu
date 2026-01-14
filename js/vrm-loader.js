@@ -105,16 +105,22 @@ export class VRMLoader {
 
                         // Stop any existing animation
                         if (this.currentAction) {
-                            this.currentAction.stop();
+                            this.currentAction.fadeOut(0.5);
                         }
 
-                        // Create and play the action
+                        // Create and play the action with smooth settings
                         const action = this.mixer.clipAction(clip);
+
+                        // Smooth looping animation settings
                         action.setLoop(THREE.LoopRepeat);
+                        action.clampWhenFinished = false;
+                        action.timeScale = 0.7;  // Slow down for smoother, more relaxed motion
+                        action.setEffectiveWeight(1.0);
+                        action.fadeIn(0.5);  // Smooth fade in
                         action.play();
 
                         this.currentAction = action;
-                        console.log('Animation now playing');
+                        console.log('Animation now playing (timeScale: 0.7 for smooth motion)');
 
                         resolve(clip);
                     } catch (e) {
