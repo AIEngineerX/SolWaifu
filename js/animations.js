@@ -62,7 +62,38 @@ export class AnimationController {
             leftHand: vrm.humanoid.getNormalizedBoneNode('leftHand'),
             rightHand: vrm.humanoid.getNormalizedBoneNode('rightHand'),
             leftShoulder: vrm.humanoid.getNormalizedBoneNode('leftShoulder'),
-            rightShoulder: vrm.humanoid.getNormalizedBoneNode('rightShoulder')
+            rightShoulder: vrm.humanoid.getNormalizedBoneNode('rightShoulder'),
+            // Finger bones - to keep fingers relaxed (not curled)
+            leftThumbProximal: vrm.humanoid.getNormalizedBoneNode('leftThumbProximal'),
+            leftThumbIntermediate: vrm.humanoid.getNormalizedBoneNode('leftThumbIntermediate'),
+            leftThumbDistal: vrm.humanoid.getNormalizedBoneNode('leftThumbDistal'),
+            leftIndexProximal: vrm.humanoid.getNormalizedBoneNode('leftIndexProximal'),
+            leftIndexIntermediate: vrm.humanoid.getNormalizedBoneNode('leftIndexIntermediate'),
+            leftIndexDistal: vrm.humanoid.getNormalizedBoneNode('leftIndexDistal'),
+            leftMiddleProximal: vrm.humanoid.getNormalizedBoneNode('leftMiddleProximal'),
+            leftMiddleIntermediate: vrm.humanoid.getNormalizedBoneNode('leftMiddleIntermediate'),
+            leftMiddleDistal: vrm.humanoid.getNormalizedBoneNode('leftMiddleDistal'),
+            leftRingProximal: vrm.humanoid.getNormalizedBoneNode('leftRingProximal'),
+            leftRingIntermediate: vrm.humanoid.getNormalizedBoneNode('leftRingIntermediate'),
+            leftRingDistal: vrm.humanoid.getNormalizedBoneNode('leftRingDistal'),
+            leftLittleProximal: vrm.humanoid.getNormalizedBoneNode('leftLittleProximal'),
+            leftLittleIntermediate: vrm.humanoid.getNormalizedBoneNode('leftLittleIntermediate'),
+            leftLittleDistal: vrm.humanoid.getNormalizedBoneNode('leftLittleDistal'),
+            rightThumbProximal: vrm.humanoid.getNormalizedBoneNode('rightThumbProximal'),
+            rightThumbIntermediate: vrm.humanoid.getNormalizedBoneNode('rightThumbIntermediate'),
+            rightThumbDistal: vrm.humanoid.getNormalizedBoneNode('rightThumbDistal'),
+            rightIndexProximal: vrm.humanoid.getNormalizedBoneNode('rightIndexProximal'),
+            rightIndexIntermediate: vrm.humanoid.getNormalizedBoneNode('rightIndexIntermediate'),
+            rightIndexDistal: vrm.humanoid.getNormalizedBoneNode('rightIndexDistal'),
+            rightMiddleProximal: vrm.humanoid.getNormalizedBoneNode('rightMiddleProximal'),
+            rightMiddleIntermediate: vrm.humanoid.getNormalizedBoneNode('rightMiddleIntermediate'),
+            rightMiddleDistal: vrm.humanoid.getNormalizedBoneNode('rightMiddleDistal'),
+            rightRingProximal: vrm.humanoid.getNormalizedBoneNode('rightRingProximal'),
+            rightRingIntermediate: vrm.humanoid.getNormalizedBoneNode('rightRingIntermediate'),
+            rightRingDistal: vrm.humanoid.getNormalizedBoneNode('rightRingDistal'),
+            rightLittleProximal: vrm.humanoid.getNormalizedBoneNode('rightLittleProximal'),
+            rightLittleIntermediate: vrm.humanoid.getNormalizedBoneNode('rightLittleIntermediate'),
+            rightLittleDistal: vrm.humanoid.getNormalizedBoneNode('rightLittleDistal')
         };
 
         console.log('Animation mixer initialized with idle animation');
@@ -220,6 +251,80 @@ export class AnimationController {
 
         if (bones.rightShoulder) {
             bones.rightShoulder.rotation.z = Math.sin(t * 0.4 + 0.2) * 0.03;
+        }
+
+        // Fingers - relaxed pose with subtle movement (prevents curled fist)
+        this.updateFingers(t);
+    }
+
+    // Keep fingers in a natural relaxed position with subtle movement
+    updateFingers(t) {
+        const bones = this.armBones;
+
+        // Relaxed finger curl values (slight bend, not fist)
+        // Proximal: slight bend, Intermediate: more bend, Distal: slight
+        const relaxedProximal = 0.15;  // Very slight bend at knuckle
+        const relaxedIntermediate = 0.2; // Slight bend at middle joint
+        const relaxedDistal = 0.1;     // Almost straight at tip
+
+        // Left hand fingers
+        const leftFingers = ['Index', 'Middle', 'Ring', 'Little'];
+        leftFingers.forEach((finger, i) => {
+            const offset = i * 0.3; // Stagger movement between fingers
+            const proximal = bones[`left${finger}Proximal`];
+            const intermediate = bones[`left${finger}Intermediate`];
+            const distal = bones[`left${finger}Distal`];
+
+            if (proximal) {
+                proximal.rotation.z = relaxedProximal + Math.sin(t * 0.5 + offset) * 0.03;
+            }
+            if (intermediate) {
+                intermediate.rotation.z = relaxedIntermediate + Math.sin(t * 0.6 + offset) * 0.02;
+            }
+            if (distal) {
+                distal.rotation.z = relaxedDistal + Math.sin(t * 0.7 + offset) * 0.01;
+            }
+        });
+
+        // Left thumb - slightly different pose
+        if (bones.leftThumbProximal) {
+            bones.leftThumbProximal.rotation.z = 0.1 + Math.sin(t * 0.4) * 0.02;
+        }
+        if (bones.leftThumbIntermediate) {
+            bones.leftThumbIntermediate.rotation.z = 0.15 + Math.sin(t * 0.5) * 0.02;
+        }
+        if (bones.leftThumbDistal) {
+            bones.leftThumbDistal.rotation.z = 0.05 + Math.sin(t * 0.6) * 0.01;
+        }
+
+        // Right hand fingers
+        const rightFingers = ['Index', 'Middle', 'Ring', 'Little'];
+        rightFingers.forEach((finger, i) => {
+            const offset = i * 0.3 + 0.5; // Stagger + offset from left hand
+            const proximal = bones[`right${finger}Proximal`];
+            const intermediate = bones[`right${finger}Intermediate`];
+            const distal = bones[`right${finger}Distal`];
+
+            if (proximal) {
+                proximal.rotation.z = -relaxedProximal + Math.sin(t * 0.5 + offset) * 0.03;
+            }
+            if (intermediate) {
+                intermediate.rotation.z = -relaxedIntermediate + Math.sin(t * 0.6 + offset) * 0.02;
+            }
+            if (distal) {
+                distal.rotation.z = -relaxedDistal + Math.sin(t * 0.7 + offset) * 0.01;
+            }
+        });
+
+        // Right thumb
+        if (bones.rightThumbProximal) {
+            bones.rightThumbProximal.rotation.z = -0.1 + Math.sin(t * 0.4 + 0.3) * 0.02;
+        }
+        if (bones.rightThumbIntermediate) {
+            bones.rightThumbIntermediate.rotation.z = -0.15 + Math.sin(t * 0.5 + 0.3) * 0.02;
+        }
+        if (bones.rightThumbDistal) {
+            bones.rightThumbDistal.rotation.z = -0.05 + Math.sin(t * 0.6 + 0.3) * 0.01;
         }
     }
 
